@@ -1,0 +1,36 @@
+[project]
+name = "langgraph-effect-ledger"
+version = "0.1.0"
+description = "Composable effect recovery with atomic SQLite/PostgreSQL stores, host-owned identity and optional LangGraph/MCP adapters."
+readme = "README.md"
+authors = [
+    { name = "donggyun112", email = "ssddgg99@daum.net" }
+]
+license = "MIT"
+requires-python = ">=3.10"
+keywords = ["langchain", "langgraph", "mcp", "postgresql", "agents", "durable-execution", "idempotency"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/donggyun112/langgraph-effect-ledger"
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2,<4"]
+langchain = [
+    "langchain>=1.4.0",
+    "langgraph>=1.2.11",
+    "langgraph-checkpoint-sqlite>=3,<4",
+]
+mcp = [
+    "mcp>=1.28,<2",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
