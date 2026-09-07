@@ -1,6 +1,6 @@
 # effect-ledger
 
-[![CI](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml)
+[![CI](https://github.com/donggyun112/effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/effect-ledger/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 *[English README](README.md)*
