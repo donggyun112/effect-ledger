@@ -172,8 +172,6 @@ uv run --all-extras python -m unittest discover -s tests -p 'test_operation*.py'
 uv run --all-extras python -m unittest discover -s tests -p test_mcp_server.py -v
 uv run --all-extras python -m unittest discover -s tests -p 'test_langgraph*.py' -v
 uv run --all-extras python -m unittest discover -s tests -p test_durable_agent_example.py -v
-uv run --extra langchain python tests/test_ledger.py
-uv run --extra langchain python tests/test_detector.py
 # PostgreSQL 전용 테스트 DB를 준비한 뒤 전체 계약/강제 종료 테스트 실행:
 EFFECT_LEDGER_TEST_DSN=postgresql://postgres@localhost/effect_ledger_test \
   uv run --all-extras python -m unittest discover -s tests -v
@@ -184,6 +182,11 @@ EFFECT_LEDGER_TEST_DSN=postgresql://postgres@localhost/effect_ledger_test \
 - 독립 프로세스 4개의 동시 호출은 실행권을 하나만 획득한다.
 - MCP stdio 연결을 실제 재시작하며 결과 재생·충돌·미해결·복구를 검증한다.
 
-기존 미들웨어·탐지기는 [이전 실험 문서](docs/legacy-middleware.md)와 `probes/`에 보존했다.
-새로운 서버 실행 계약의 근거로 사용하지 않는다. 기존 사용자는 이제 `[langchain]` extra가
-필요하다. 설계와 구현 계획은 `docs/superpowers/`에 있다.
+설계 근거는 `probes/`에 순서대로 남아 있다. 각 파일은 패키지를 import하지 않고 그대로
+실행된다. 설계와 구현 계획은 `docs/superpowers/`에 있다.
+
+초기의 `EffectLedger` 미들웨어와 `MixedEffectDetector`는 제거했다. 미들웨어는 툴 바깥이라
+툴 본문의 재생을 끊지 못했고, 탐지기는 그 한계를 정적 분석으로 경고하는 우회책이었다
+(`probes/probe_i~l`). `ExecutionBoundary`는 효과 전에 실행권을 커밋하므로 툴이 내부에서
+중단해도 실행권이 풀리지 않는다 — 경고할 위험 자체가 사라져 탐지기도 함께 사라졌다.
+필요하면 git 히스토리에서 꺼낼 수 있다.
