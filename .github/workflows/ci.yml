@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+
+    services:
+      # The durability contract is only meaningful against a real shared database,
+      # so PostgreSQL runs on every supported interpreter rather than nightly.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - run: uv sync --all-extras
+
+      - name: Run tests
+        shell: bash
+        working-directory: tests
+        env:
+          EFFECT_LEDGER_TEST_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+        run: |
+          set -o pipefail
+          # Tests import each other by module name, so discovery runs from their directory.
+          uv run python -m unittest discover -s . -p 'test_*.py' -v 2>&1 \
+            | tee "$RUNNER_TEMP/tests.log"
+          # A missing or wrong DSN makes the PostgreSQL contract skip and still report
+          # success. Green CI over an unexercised store is worse than no CI, so a skip
+          # is a failure here.
+          if grep -qi 'skipped' "$RUNNER_TEMP/tests.log"; then
+            echo "::error::Tests were skipped. The PostgreSQL contract did not run."
+            exit 1
+          fi
+
+  build:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv build
+
+      - name: Import the built wheel without the source tree
+        shell: bash
+        run: |
+          # src layout plus py.typed: a packaging mistake is invisible from the repo.
+          uv run --isolated --no-project --with ./dist/*.whl \
+            python -c "import langgraph_effect_ledger as m; print(m.EffectExecutor)"

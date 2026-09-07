@@ -1,5 +1,8 @@
 # langgraph-effect-ledger
 
+[![CI](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 LangChain 에이전트의 쓰기 툴에 붙이는 **조합 가능한 실행 원장 라이브러리**다.
 저장소(SQLite/Postgres), 업무 ID, 복구 정책, LangGraph/MCP 어댑터를 따로 선택한다.
 코어는 프레임워크에 의존하지 않으며 **요청·제공자 키·실행 시도·결과·복구 판정**을 보존한다.
