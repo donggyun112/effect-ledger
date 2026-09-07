@@ -13,7 +13,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.errors import GraphBubbleUp
 
 from ._graph_boundary import checked_identity, pause
-from .operations import EffectExecutor, Operation, _json, _text
+from .operations import EffectExecutor, Operation, OperationConflict, _json, _text
 
 _CURRENT: ContextVar[Operation | None] = ContextVar('effect_operation', default=None)
 
@@ -25,6 +25,10 @@ class _ToolPolicy(Enum):
 
 READ_ONLY = _ToolPolicy.READ_ONLY
 CONTROL = _ToolPolicy.CONTROL
+
+
+class UnsupportedToolResult(ValueError):
+    """A durable tool returned a value that cannot be safely replayed."""
 
 
 class _ControlFlow(BaseException):
@@ -76,16 +80,26 @@ class ExecutionBoundary(AgentMiddleware):
 
     @staticmethod
     def _encode(message: Any) -> dict[str, Any]:
-        if not isinstance(message, ToolMessage) or message.status != 'success':
+        if not isinstance(message, ToolMessage):
+            raise UnsupportedToolResult(
+                'Durable tools must return ToolMessage; mark no-effect control tools CONTROL')
+        if message.status != 'success':
             raise ValueError('Protected tools must return a successful ToolMessage')
         data = message.model_dump(mode='python', exclude={'id', 'tool_call_id', 'name'})
         envelope = {'format': 'langchain-tool-result:v1', 'message': data}
-        _json(envelope)  # Reject coercion of non-JSON artifacts.
+        try:
+            _json(envelope)  # Reject coercion of non-JSON artifacts.
+        except ValueError as exc:
+            raise UnsupportedToolResult(
+                'Durable tool results and artifacts must contain only JSON values') from exc
         return envelope
 
     @staticmethod
     def _reply(status: dict[str, Any], request: ToolCallRequest, effect: str) -> ToolMessage:
         if status['state'] != 'completed':
+            if status.get('error') == 'UnsupportedToolResult':
+                status = {**status, 'configuration_hint':
+                    'Mark no-effect Command tools CONTROL; effect results and artifacts must be JSON.'}
             return pause(status, effect, request.runtime.config)
         try:
             envelope = status['result']
@@ -102,10 +116,23 @@ class ExecutionBoundary(AgentMiddleware):
                        'error': type(exc).__name__}
         return pause(invalid, effect, request.runtime.config)
 
-    @staticmethod
-    def _failure(operation_id: str, exc: Exception) -> dict[str, Any]:
-        return {'operation_id': operation_id, 'state': 'transport_error',
-                'unresolved': True, 'error': type(exc).__name__, 'version': None}
+    def _failure(self, operation_id: str, effect: str, tool_name: str,
+                 exc: Exception) -> dict[str, Any]:
+        status = {'operation_id': operation_id, 'state': 'transport_error',
+                  'unresolved': True, 'error': type(exc).__name__, 'version': None}
+        if isinstance(exc, OperationConflict):
+            try:
+                existing = self.executor.get(operation_id)
+            except Exception:
+                existing = None
+            if existing is not None and existing.effect != effect:
+                replacement = ("bump workflow_id" if self.operation_id is None else
+                               "return a new operation_id")
+                status['configuration_hint'] = (
+                    f"Operation is bound to {existing.effect!r}, but {tool_name!r} resolved "
+                    f"to {effect!r}. Configure tools={{{tool_name!r}: "
+                    f"{existing.effect!r}}} to preserve the effect name, or {replacement}.")
+        return status
 
     def wrap_tool_call(self, request: ToolCallRequest, handler: Callable) -> Any:
         effect = self._policy(request.tool_call['name'])
@@ -129,7 +156,7 @@ class ExecutionBoundary(AgentMiddleware):
         except _ControlFlow as flow:
             raise flow.signal
         except Exception as exc:
-            status = self._failure(identity, exc)
+            status = self._failure(identity, effect, request.tool_call['name'], exc)
         return self._reply(status, request, effect)
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler: Callable) -> Any:
@@ -155,5 +182,5 @@ class ExecutionBoundary(AgentMiddleware):
         except _ControlFlow as flow:
             raise flow.signal
         except Exception as exc:
-            status = self._failure(identity, exc)
+            status = self._failure(identity, effect, request.tool_call['name'], exc)
         return self._reply(status, request, effect)

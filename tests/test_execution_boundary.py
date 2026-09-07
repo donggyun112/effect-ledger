@@ -10,7 +10,8 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool, ToolException
-from langgraph.types import interrupt
+from langchain.tools import ToolRuntime
+from langgraph.types import Command, interrupt
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph_effect_ledger import EffectExecutor
 from langgraph_effect_ledger.langchain import CONTROL, READ_ONLY, ExecutionBoundary, current_operation
@@ -25,6 +26,19 @@ class NativeModel(ScriptedModel):
         if isinstance(message, AIMessage) and message.tool_calls:
             message.tool_calls[0]['args'] = {'text': 'hello'}
             message.tool_calls[0]['id'] = 'native-' + uuid4().hex
+        return response
+
+
+class NamedNativeModel(NativeModel):
+    requested_tool: str
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        response = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        message = response.generations[0].message
+        if isinstance(message, AIMessage) and message.tool_calls:
+            message.tool_calls[0]['name'] = self.requested_tool
+            message.tool_calls[0]['id'] = 'rename-tool-call'
+            message.id = 'rename-parent-message'
         return response
 
 
@@ -127,6 +141,89 @@ class BoundaryTest(unittest.TestCase):
             ExecutionBoundary(self.executor, workflow_id='native:v1', tools={'': READ_ONLY})
         ExecutionBoundary(self.executor, workflow_id='native:v1',
                           tools={'search': READ_ONLY, 'handoff': CONTROL})
+
+    def test_control_tool_requires_control_policy_and_then_bypasses_the_ledger(self):
+        calls = []
+
+        @tool
+        def send_message(text: str, runtime: ToolRuntime) -> Command:
+            """Transfer control without an external effect."""
+            calls.append(text)
+            return Command(update={'messages': [ToolMessage(
+                content='Transferred', tool_call_id=runtime.tool_call_id)]})
+
+        def build(policy=None):
+            connection = sqlite3.connect(self.root / f'control-{policy}.db', check_same_thread=False)
+            self.addCleanup(connection.close)
+            tools = None if policy is None else {'send_message': policy}
+            graph = create_agent(self.model, [send_message],
+                middleware=[ExecutionBoundary(self.executor, tools=tools,
+                    operation_id=lambda runtime: 'control-default' if policy is None
+                    else 'control-bypass')],
+                checkpointer=SqliteSaver(connection))
+            return DurableAgentRunner(graph)
+
+        paused = build().start({'messages': [('user', 'transfer')]}, self.config)
+        failure = paused['__interrupt__'][0].value
+        self.assertEqual(failure['state'], 'indeterminate')
+        self.assertEqual(failure['error'], 'UnsupportedToolResult')
+        self.assertIn('CONTROL', failure['configuration_hint'])
+
+        self.config['configurable']['thread_id'] = 'control-thread'
+        done = build(CONTROL).start({'messages': [('user', 'transfer')]}, self.config)
+        self.assertFalse(done.get('__interrupt__'))
+        self.assertEqual(calls, ['hello', 'hello'])
+        self.assertIsNone(self.executor.get('control-bypass'))
+
+    def test_non_json_artifact_fails_closed_with_an_actionable_hint(self):
+        @tool(response_format='content_and_artifact')
+        def send_message(text: str):
+            """Return an artifact that cannot be replayed."""
+            return 'Sent', object()
+
+        connection = sqlite3.connect(self.root / 'artifact.db', check_same_thread=False)
+        self.addCleanup(connection.close)
+        graph = create_agent(self.model, [send_message],
+            middleware=[ExecutionBoundary(self.executor, workflow_id='artifact')],
+            checkpointer=SqliteSaver(connection))
+        paused = DurableAgentRunner(graph).start(
+            {'messages': [('user', 'send')]}, self.config)
+        failure = paused['__interrupt__'][0].value
+        self.assertEqual(failure['error'], 'UnsupportedToolResult')
+        self.assertIn('JSON', failure['configuration_hint'])
+
+    def test_renamed_tool_explains_how_to_preserve_or_replace_its_identity(self):
+        calls = []
+
+        def run(name, *, tools=None, checkpoint):
+            @tool(name)
+            def named_tool(text: str):
+                """Perform one external effect."""
+                calls.append(name)
+                return 'Sent'
+
+            connection = sqlite3.connect(self.root / f'{checkpoint}.db', check_same_thread=False)
+            self.addCleanup(connection.close)
+            graph = create_agent(NamedNativeModel(requested_tool=name), [named_tool],
+                middleware=[ExecutionBoundary(self.executor, tools=tools,
+                    workflow_id='rename-workflow')],
+                checkpointer=SqliteSaver(connection))
+            return DurableAgentRunner(graph).start(
+                {'messages': [('user', 'send')]},
+                {'configurable': {'thread_id': 'rename-thread'}})
+
+        run('send_message', checkpoint='before-rename')
+        paused = run('send_msg', checkpoint='after-rename')
+        failure = paused['__interrupt__'][0].value
+        self.assertEqual(failure['error'], 'OperationConflict')
+        self.assertIn('langchain.tool:send_message', failure['configuration_hint'])
+        self.assertIn('langchain.tool:send_msg', failure['configuration_hint'])
+        self.assertIn('workflow_id', failure['configuration_hint'])
+
+        replayed = run('send_msg', checkpoint='explicit-stable-name',
+                       tools={'send_msg': 'langchain.tool:send_message'})
+        self.assertFalse(replayed.get('__interrupt__'))
+        self.assertEqual(calls, ['send_message'])
 
     def test_error_tool_message_is_not_a_completed_effect(self):
         runner, _ = self.build(tool_error=True)
