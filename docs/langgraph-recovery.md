@@ -1,10 +1,14 @@
-# LangGraph에서 장애 후 업무 완료까지
+# durable_tool: 원격 전송과 MCP 경로
+
+> **이 문서는 보조 경로다.** 대부분의 경우 [ExecutionBoundary 가이드](langchain-boundary.md)를
+> 읽어야 한다. 이미 가진 툴에 미들웨어 하나를 얹으면 끝이고, 그게 추천 경로다.
+>
+> `durable_tool`은 그것으로 부족할 때만 쓴다. 효과를 **다른 프로세스가 실행**하고 이쪽은
+> `execute(operation_id, effect, request)` 전송만 담당하는 경우 — MCP 서버, 원격 HTTP
+> 제공자처럼 원장이 이 프로세스 밖에 있는 배치다. 같은 툴에 둘을 겹쳐 쓰지 않는다.
 
 `create_agent`의 명시적인 효과 툴 안에 복구 중단을 둔다. 서버의 원장이 실행권을 소유하고,
 LangGraph 체크포인터가 원래 모델 요청과 업무 진행 상태를 보존한다.
-
-기존 LangChain 툴에 바로 붙이는 경우에는 [ExecutionBoundary 가이드](langchain-boundary.md)를
-먼저 읽는다. 아래 durable_tool 경로는 명시적인 요청/응답 프로토콜과 MCP 연결에도 사용할 수 있다.
 
 ## 직접 실행하기
 

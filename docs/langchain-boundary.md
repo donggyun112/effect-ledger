@@ -147,8 +147,9 @@ outcome = runner.resume(config)
 - SDK 내부 재시도는 이 경계보다 안쪽이다. 제공자 멱등성 계약에 맞게 설정해야 한다.
 - 같은 thread의 호출 직렬화와 내구 체크포인터는 호스트 책임이다. root create_agent의 최신
   체크포인트 범위이며 임의 StateGraph·서브그래프 지원을 주장하지 않는다.
-- 같은 툴에 `durable_tool`과 ExecutionBoundary를 이중 적용하지 않는다. 원격 MCP 실행에는
-  기존 durable_tool/transport 경로를 사용할 수 있다.
+- 같은 툴에 `durable_tool`과 ExecutionBoundary를 이중 적용하지 않는다. 효과를 다른 프로세스가
+  실행하고 원장이 이 프로세스 밖에 있는 배치(MCP 서버, 원격 HTTP 제공자)에는
+  [durable_tool 경로](langgraph-recovery.md)를 쓴다.
 
 ## 검증
 

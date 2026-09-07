@@ -5,21 +5,25 @@
 
 *[한국어 README](README.ko.md) · the `docs/` guides are currently Korean only.*
 
-A **composable execution ledger** for the write tools of a LangChain agent.
-The store (SQLite/Postgres), the business ID, the recovery policy and the
-LangGraph/MCP adapters are chosen separately. The core depends on no framework
-and preserves the **request, provider key, attempt, result and recovery decision**.
+Your agent charged the card. The process died before the provider's reply came
+back. The graph resumes from its last checkpoint, calls the tool again, and
+charges the card a second time.
 
-When a process dies immediately after an external system applied a request, no
-local record can say whether it succeeded. `EffectExecutor` does not resend the
-same operation on its own; it leaves the operation unresolved. It does not
-create provider idempotency and does not guarantee exactly-once.
+That is documented behaviour rather than a bug. A task that started but did not
+finish runs again on resume, and keeping the side effect safe is left to you.
 
-The **failure → unresolved hold → operator decision → resume → final response**
-path is wired for LangGraph agents as well. Start from the
-[full runnable example and recovery procedure](docs/langgraph-recovery.md).
-[The composition API and extension contract](docs/composition.md) covers
-everything from embedded execution to a multi-host store.
+**effect-ledger commits a record of the attempt before the effect leaves, so the
+second call finds it.** An attempt whose outcome was never recorded stops as
+`unresolved` and waits for a person. Nothing is retried on a guess.
+
+It does not make your provider idempotent and it does not give you exactly-once.
+It records what may already have gone out, and refuses to guess the rest.
+
+Start with the [LangChain execution boundary](docs/langchain-boundary.md): one
+middleware over the tools you already have. Everything else is chosen
+separately — the store (SQLite/Postgres), the business ID, the recovery policy —
+and the core depends on no framework. [The composition API and extension
+contract](docs/composition.md) covers that, up to a multi-host store.
 
 ```python
 from langchain.agents import create_agent
@@ -90,15 +94,29 @@ provider's own idempotency retention window.
 
 The first two states carry `unresolved=true`. Elapsed time, cancellation and
 restarts never clear them automatically. In the response, `next_action` is
-`wait` for `in_flight` and `reconcile` for `indeterminate`. A caller that loses
-the race should first wait on `get_effect` for completion rather than demanding
-an operator decision immediately. There is no lease or heartbeat, so liveness
-behind `in_flight` remains unknown. Whether the worker stopped is for the host
-to investigate, and a long wait never grants a fresh claim. `ready` returns
-`execute` and `completed` returns `use_result`. Keep the same operation ID even
+`wait` for `in_flight` and `reconcile` for `indeterminate`; `ready` returns
+`execute` and `completed` returns `use_result`. A caller that loses the race
+should first wait on `get_effect` for completion rather than demanding an
+operator decision immediately. Keep the same operation ID even
 when a store error prevented a response from arriving. The handler is a
 synchronous function; SDK-internal retries and partial success across multiple
 effects are the responsibility of the handler or provider adapter.
+
+### There is no lease, and that is the point
+
+`in_flight` does not mean a worker is alive. There is no lease and no heartbeat,
+so an operation can sit there because the worker is still running, or because it
+was killed a week ago. The ledger cannot tell those apart, and neither can you
+from the outside.
+
+**So nothing expires here.** No amount of elapsed time moves an operation out of
+`in_flight`, because a claim that expires on a timer is a retry permit handed out
+by a clock that never saw the provider. Only a person who stopped the workers and
+checked the provider can settle it, through `resolve`.
+
+If a lease is ever added it will be an investigation signal and never a claim:
+expiry would tell you where to look, and would still leave `resolve` as the only
+way to grant another attempt.
 
 ## MCP server example
 
