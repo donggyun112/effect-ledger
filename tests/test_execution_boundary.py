@@ -13,7 +13,7 @@ from langchain_core.tools import tool, ToolException
 from langgraph.types import interrupt
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import ExecutionBoundary, current_operation
+from langgraph_effect_ledger.langchain import CONTROL, READ_ONLY, ExecutionBoundary, current_operation
 from langgraph_effect_ledger.langgraph import DurableAgentRunner
 from test_langgraph_recovery import ScriptedModel
 
@@ -39,20 +39,21 @@ class BoundaryTest(unittest.TestCase):
         self.operations = []
         self.config = {'configurable': {'thread_id': 'thread'}}
 
-    def build(self, *, failure=False, outer=(), effects=None, operation_id=None, tool_error=False):
+    def build(self, *, failure=False, outer=(), tools=None, operation_id=None, tool_error=False):
         @tool(response_format='content_and_artifact')
         def send_message(text: str):
             """Send one message."""
             self.calls.append(text)
-            if effects != {}:
+            try:
                 self.operations.append(current_operation())
+            except LookupError:
+                pass
             if tool_error:
                 raise ToolException('Unknown provider outcome')
             if failure:
                 raise TimeoutError('Remote accepted but response lost')
             return 'Message sent', {'remote_id': 17}
-        boundary = ExecutionBoundary(self.executor,
-            effects={'send_message': 'message.send:v1'} if effects is None else effects,
+        boundary = ExecutionBoundary(self.executor, tools=tools,
             workflow_id='native:v1', operation_id=operation_id)
         send_message.handle_tool_error = True
         connection = sqlite3.connect(self.root / 'graph.db', check_same_thread=False)
@@ -69,6 +70,7 @@ class BoundaryTest(unittest.TestCase):
         self.assertEqual(message.content, 'Message sent')
         self.assertEqual(message.artifact, {'remote_id': 17})
         self.assertEqual(self.calls, ['hello'])
+        self.assertEqual(self.operations[0].effect, 'langchain.tool:send_message')
 
     def test_uncertain_tool_pauses_without_replanning_and_can_be_confirmed(self):
         runner, _ = self.build(failure=True)
@@ -101,14 +103,30 @@ class BoundaryTest(unittest.TestCase):
         self.assertFalse(result.get('__interrupt__'))
         self.assertEqual(self.calls, ['hello'])
 
-    def test_unregistered_tool_passes_through(self):
-        runner, _ = self.build(effects={})
+    def test_read_only_tool_passes_through_without_ledger_writes(self):
+        runner, _ = self.build(tools={'send_message': READ_ONLY})
         done = runner.start({'messages': [('user', 'send')]}, self.config)
         self.assertFalse(done.get('__interrupt__'))
         self.assertEqual(self.calls, ['hello'])
         planned = next(item for item in done['messages'] if isinstance(item, AIMessage) and item.tool_calls)
         returned = next(item for item in done['messages'] if isinstance(item, ToolMessage))
         self.assertEqual(returned.tool_call_id, planned.tool_calls[0]['id'])
+        self.assertEqual(self.operations, [])
+
+    def test_explicit_effect_name_overrides_the_default(self):
+        runner, _ = self.build(tools={'send_message': 'message.send:v2'})
+        runner.start({'messages': [('user', 'send')]}, self.config)
+        self.assertEqual(self.operations[0].effect, 'message.send:v2')
+
+    def test_tool_policy_configuration_is_validated_at_construction(self):
+        for value in ('', 1, object()):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                ExecutionBoundary(self.executor, workflow_id='native:v1',
+                                  tools={'send_message': value})
+        with self.assertRaises(ValueError):
+            ExecutionBoundary(self.executor, workflow_id='native:v1', tools={'': READ_ONLY})
+        ExecutionBoundary(self.executor, workflow_id='native:v1',
+                          tools={'search': READ_ONLY, 'handoff': CONTROL})
 
     def test_error_tool_message_is_not_a_completed_effect(self):
         runner, _ = self.build(tool_error=True)
@@ -170,7 +188,7 @@ class BoundaryTest(unittest.TestCase):
         connection = sqlite3.connect(self.root / 'graph.db', check_same_thread=False)
         self.addCleanup(connection.close)
         runner = DurableAgentRunner(create_agent(self.model, [send_message],
-            middleware=[ExecutionBoundary(self.executor, effects={'send_message': 'send:v1'},
+            middleware=[ExecutionBoundary(self.executor, tools={'send_message': 'send:v1'},
                                           operation_id=lambda runtime: 'internal')],
             checkpointer=SqliteSaver(connection)))
         pause = runner.start({'messages': [('user', 'send')]}, self.config)
@@ -193,7 +211,7 @@ class AsyncBoundaryTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
                 calls.append(current_operation())
                 raise TimeoutError()
-            boundary = ExecutionBoundary(executor, effects={'send_message': 'send:v1'}, workflow_id='async')
+            boundary = ExecutionBoundary(executor, tools={'send_message': 'send:v1'}, workflow_id='async')
             async with AsyncSqliteSaver.from_conn_string(str(Path(directory) / 'graph.db')) as saver:
                 model = NativeModel()
                 runner = DurableAgentRunner(create_agent(model, [send_message],
