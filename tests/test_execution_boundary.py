@@ -15,14 +15,14 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command, interrupt
 from test_langgraph_recovery import ScriptedModel
 
-from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import (
+from effect_ledger import EffectExecutor
+from effect_ledger.langchain import (
     CONTROL,
     READ_ONLY,
     ExecutionBoundary,
     current_operation,
 )
-from langgraph_effect_ledger.langgraph import DurableAgentRunner
+from effect_ledger.langgraph import LedgerRunner
 
 
 class NativeModel(ScriptedModel):
@@ -80,7 +80,7 @@ class BoundaryTest(unittest.TestCase):
         self.addCleanup(connection.close)
         graph = create_agent(self.model, [send_message], middleware=[*outer, boundary],
                              checkpointer=SqliteSaver(connection))
-        return DurableAgentRunner(graph), send_message
+        return LedgerRunner(graph), send_message
 
     def test_native_tool_schema_and_result_survive_boundary(self):
         runner, native = self.build()
@@ -167,7 +167,7 @@ class BoundaryTest(unittest.TestCase):
                     operation_id=lambda runtime: 'control-default' if policy is None
                     else 'control-bypass')],
                 checkpointer=SqliteSaver(connection))
-            return DurableAgentRunner(graph)
+            return LedgerRunner(graph)
 
         paused = build().start({'messages': [('user', 'transfer')]}, self.config)
         failure = paused['__interrupt__'][0].value
@@ -192,7 +192,7 @@ class BoundaryTest(unittest.TestCase):
         graph = create_agent(self.model, [send_message],
             middleware=[ExecutionBoundary(self.executor, workflow_id='artifact')],
             checkpointer=SqliteSaver(connection))
-        paused = DurableAgentRunner(graph).start(
+        paused = LedgerRunner(graph).start(
             {'messages': [('user', 'send')]}, self.config)
         failure = paused['__interrupt__'][0].value
         self.assertEqual(failure['error'], 'UnsupportedToolResult')
@@ -214,7 +214,7 @@ class BoundaryTest(unittest.TestCase):
                 middleware=[ExecutionBoundary(self.executor, tools=tools,
                     workflow_id=workflow_id)],
                 checkpointer=SqliteSaver(connection))
-            return DurableAgentRunner(graph).start(
+            return LedgerRunner(graph).start(
                 {'messages': [('user', 'send')]},
                 {'configurable': {'thread_id': 'rename-thread'}})
 
@@ -250,7 +250,7 @@ class BoundaryTest(unittest.TestCase):
             graph = create_agent(NamedNativeModel(requested_tool=name), [named_tool],
                 middleware=[ExecutionBoundary(self.executor, workflow_id=workflow_id)],
                 checkpointer=SqliteSaver(connection))
-            return DurableAgentRunner(graph).start(
+            return LedgerRunner(graph).start(
                 {'messages': [('user', 'send')]},
                 {'configurable': {'thread_id': 'redispatch-thread'}})
 
@@ -321,7 +321,7 @@ class BoundaryTest(unittest.TestCase):
             return 'sent'
         connection = sqlite3.connect(self.root / 'graph.db', check_same_thread=False)
         self.addCleanup(connection.close)
-        runner = DurableAgentRunner(create_agent(self.model, [send_message],
+        runner = LedgerRunner(create_agent(self.model, [send_message],
             middleware=[ExecutionBoundary(self.executor, tools={'send_message': 'send:v1'},
                                           operation_id=lambda runtime: 'internal')],
             checkpointer=SqliteSaver(connection)))
@@ -348,7 +348,7 @@ class AsyncBoundaryTest(unittest.IsolatedAsyncioTestCase):
             boundary = ExecutionBoundary(executor, workflow_id='async')
             async with AsyncSqliteSaver.from_conn_string(str(Path(directory) / 'graph.db')) as saver:
                 model = NativeModel()
-                runner = DurableAgentRunner(create_agent(model, [send_message],
+                runner = LedgerRunner(create_agent(model, [send_message],
                     middleware=[boundary], checkpointer=saver))
                 config = {'configurable': {'thread_id': 'async'}}
                 pause = await runner.astart({'messages': [('user', 'send')]}, config)

@@ -13,8 +13,8 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from langgraph_effect_ledger.langgraph import DurableAgentRunner, durable_tool
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.langgraph import LedgerRunner, durable_tool
+from effect_ledger.operations import EffectExecutor
 
 
 class ScriptedModel(BaseChatModel):
@@ -65,7 +65,7 @@ class GraphFixture:
         connection = sqlite3.connect(self.root / "checkpoints.sqlite", check_same_thread=False)
         self.addCleanup(connection.close)
         graph = create_agent(self.model, [tool], checkpointer=SqliteSaver(connection))
-        return DurableAgentRunner(graph)
+        return LedgerRunner(graph)
 
     def resolve(self, pause, action="complete"):
         payload = pause["__interrupt__"][0].value
@@ -193,7 +193,7 @@ class GraphRecoveryTest(GraphFixture, unittest.TestCase):
     def test_in_memory_checkpoints_and_time_travel_are_rejected(self):
         from langgraph.checkpoint.memory import InMemorySaver
         with self.assertRaises(ValueError):
-            DurableAgentRunner(create_agent(self.model, [], checkpointer=InMemorySaver()))
+            LedgerRunner(create_agent(self.model, [], checkpointer=InMemorySaver()))
         runner = self.build()
         with self.assertRaises(ValueError):
             runner.start({"messages": [("user", "go")]}, {
@@ -209,7 +209,7 @@ class GraphRecoveryTest(GraphFixture, unittest.TestCase):
             """Ask for ordinary human approval, without an effect."""
             return "approved" if interrupt({"kind": "human_approval"}) else "declined"
         with closing(sqlite3.connect(self.root / "checkpoints.sqlite", check_same_thread=False)) as db:
-            runner = DurableAgentRunner(create_agent(self.model, [send_message], checkpointer=SqliteSaver(db)))
+            runner = LedgerRunner(create_agent(self.model, [send_message], checkpointer=SqliteSaver(db)))
             pause = runner.start({"messages": [("user", "ask")]}, self.config)
             with self.assertRaises(ValueError):
                 runner.resume(self.config)
@@ -277,7 +277,7 @@ class AsyncGraphRecoveryTest(unittest.IsolatedAsyncioTestCase):
             model = ScriptedModel()
             config = {"configurable": {"thread_id": "async-thread"}}
             async with AsyncSqliteSaver.from_conn_string(str(root / "checkpoints.sqlite")) as saver:
-                runner = DurableAgentRunner(create_agent(model, [effect], checkpointer=saver))
+                runner = LedgerRunner(create_agent(model, [effect], checkpointer=saver))
                 pause = await runner.astart({"messages": [("user", "send")]}, config)
                 pause = await runner.aresume(config)
                 self.assertEqual(len(calls), 1)

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from langgraph_effect_ledger import (
+from effect_ledger import (
     EffectExecutor,
     OperationConflict,
     RecoveryDecision,

@@ -1,4 +1,4 @@
-# langgraph-effect-ledger
+# effect-ledger
 
 [![CI](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -19,9 +19,9 @@ LangGraph 에이전트의 **장애 → 미해결 보류 → 운영자 판정 →
 
 ```python
 from langchain.agents import create_agent
-from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import ExecutionBoundary
-from langgraph_effect_ledger.langgraph import DurableAgentRunner
+from effect_ledger import EffectExecutor
+from effect_ledger.langchain import ExecutionBoundary
+from effect_ledger.langgraph import LedgerRunner
 
 boundary = ExecutionBoundary(
     EffectExecutor("effects.sqlite", scope="account-1"),
@@ -29,7 +29,7 @@ boundary = ExecutionBoundary(
 )
 # model, send_message, saver는 앱의 기존 모델·단일 효과 툴·내구 체크포인터다.
 agent = create_agent(model, [send_message], middleware=[boundary], checkpointer=saver)
-runner = DurableAgentRunner(agent)
+runner = LedgerRunner(agent)
 ```
 
 등록된 모든 툴은 기본적으로 보호된다. 기존 툴의 이름·인자 스키마를 유지한다. 읽기·제어
@@ -39,9 +39,9 @@ runner = DurableAgentRunner(agent)
 ## 설치
 
 ```bash
-pip install "langgraph-effect-ledger[langchain]"
-pip install "langgraph-effect-ledger[mcp]"       # MCP로 효과를 노출할 때
-pip install "langgraph-effect-ledger[postgres]"  # 다중 호스트 저장소를 쓸 때
+pip install "effect-ledger[langchain]"
+pip install "effect-ledger[mcp]"       # MCP로 효과를 노출할 때
+pip install "effect-ledger[postgres]"  # 다중 호스트 저장소를 쓸 때
 ```
 
 이 저장소를 클론해서 개발할 때는 `uv sync --extra langchain`(또는 `--all-extras`)을 쓴다.
@@ -122,7 +122,7 @@ scope와 provider key는 툴 인자로 받지 않는다. 제공자별 입력 검
 `workers_stopped=True`는 호출자의 확인이며 원격 효과를 차단하는 장치가 아니다.
 
 ```python
-from langgraph_effect_ledger import EffectExecutor
+from effect_ledger import EffectExecutor
 
 executor = EffectExecutor("/tmp/effects.sqlite", scope="local-mailbox")
 record = executor.get("message-1")
@@ -173,7 +173,7 @@ HTTP 배포는 인증·권한·계정별 라우팅을 별도로 구성해야 한
 uv run --all-extras python -m unittest discover -s tests -p 'test_operation*.py' -v
 uv run --all-extras python -m unittest discover -s tests -p test_mcp_server.py -v
 uv run --all-extras python -m unittest discover -s tests -p 'test_langgraph*.py' -v
-uv run --all-extras python -m unittest discover -s tests -p test_durable_agent_example.py -v
+uv run --all-extras python -m unittest discover -s tests -p test_recovery_agent_example.py -v
 # PostgreSQL 전용 테스트 DB를 준비한 뒤 전체 계약/강제 종료 테스트 실행:
 EFFECT_LEDGER_TEST_DSN=postgresql://postgres@localhost/effect_ledger_test \
   uv run --all-extras python -m unittest discover -s tests -v

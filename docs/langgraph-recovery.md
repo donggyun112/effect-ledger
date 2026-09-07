@@ -10,9 +10,9 @@ LangGraph 체크포인터가 원래 모델 요청과 업무 진행 상태를 보
 
 ```bash
 uv sync --all-extras
-uv run --all-extras python examples/durable_agent.py --state-dir /tmp/durable-agent-demo start --lose-response
-uv run --all-extras python examples/durable_agent.py --state-dir /tmp/durable-agent-demo status
-uv run --all-extras python examples/durable_agent.py --state-dir /tmp/durable-agent-demo resume
+uv run --all-extras python examples/recovery_agent.py --state-dir /tmp/recovery-agent-demo start --lose-response
+uv run --all-extras python examples/recovery_agent.py --state-dir /tmp/recovery-agent-demo status
+uv run --all-extras python examples/recovery_agent.py --state-dir /tmp/recovery-agent-demo resume
 ```
 
 외부 API 키 없이 실행된다. 결정적인 예제 모델이 MCP 서버의 로컬 메일함에 `hello`를
@@ -22,10 +22,10 @@ uv run --all-extras python examples/durable_agent.py --state-dir /tmp/durable-ag
 이전 예제 프로세스들이 종료됐고 메일함의 해당 행이 실제 작업임을 확인한 후, 출력의 값을 넣는다.
 
 ```bash
-uv run --all-extras python examples/durable_agent.py --state-dir /tmp/durable-agent-demo confirm \
+uv run --all-extras python examples/recovery_agent.py --state-dir /tmp/recovery-agent-demo confirm \
   --operation-id <출력된-operation_id> --version <출력된-version> \
   --decision-id confirmed-message-1 --message-id 1 --workers-stopped
-uv run --all-extras python examples/durable_agent.py --state-dir /tmp/durable-agent-demo resume
+uv run --all-extras python examples/recovery_agent.py --state-dir /tmp/recovery-agent-demo resume
 ```
 
 `completed: true`와 최종 모델 응답을 반환한다. 메일함 DB의 메시지는 여전히 한 건이다.
@@ -45,7 +45,7 @@ StdioEffectClient.execute로 MCP 서버에 연결할 수 있다.
 
 ```python
 from langchain.agents import create_agent
-from langgraph_effect_ledger.langgraph import DurableAgentRunner, durable_tool
+from effect_ledger.langgraph import LedgerRunner, durable_tool
 
 # model, saver, transport는 앱의 모델·내구 체크포인터·효과 서버 연결이다.
 send = durable_tool(
@@ -53,7 +53,7 @@ send = durable_tool(
     workflow_id="mail-agent:v1", effect="message.send:v1",
     execute=transport.execute,
 )
-runner = DurableAgentRunner(create_agent(model, [send], checkpointer=saver))
+runner = LedgerRunner(create_agent(model, [send], checkpointer=saver))
 config = {"configurable": {"thread_id": "business-workflow-123"}}
 result = runner.start({"messages": [("user", "send a message")]}, config)
 # 운영자 판정이 서버에 저장된 뒤:
@@ -97,7 +97,7 @@ result = runner.resume(config)
 
 ```bash
 uv run --all-extras python -m unittest discover -s tests -p 'test_langgraph*.py' -v
-uv run --all-extras python -m unittest discover -s tests -p test_durable_agent_example.py -v
+uv run --all-extras python -m unittest discover -s tests -p test_recovery_agent_example.py -v
 ```
 
 ## 적용 범위

@@ -14,12 +14,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.operations import EffectExecutor
 
 
 def executor_for(db, scope):
     if str(db).startswith(('postgresql://', 'postgres://')):
-        from langgraph_effect_ledger.postgres import PostgresOperationStore
+        from effect_ledger.postgres import PostgresOperationStore
         return EffectExecutor(store=PostgresOperationStore(str(db)), scope=scope)
     return EffectExecutor(db, scope=scope)
 

@@ -91,4 +91,4 @@ jobs:
         run: |
           # src layout plus py.typed: a packaging mistake is invisible from the repo.
           uv run --isolated --no-project --with ./dist/*.whl \
-            python -c "import langgraph_effect_ledger as m; print(m.EffectExecutor)"
+            python -c "import effect_ledger as m; print(m.EffectExecutor)"

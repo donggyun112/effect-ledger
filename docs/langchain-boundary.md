@@ -8,9 +8,9 @@ BaseTool/StructuredTool, 모델 루프, LangGraph 체크포인터를 그대로 �
 ```python
 from langchain.agents import create_agent
 from langchain.tools import tool
-from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import CONTROL, READ_ONLY, ExecutionBoundary, current_operation
-from langgraph_effect_ledger.langgraph import DurableAgentRunner
+from effect_ledger import EffectExecutor
+from effect_ledger.langchain import CONTROL, READ_ONLY, ExecutionBoundary, current_operation
+from effect_ledger.langgraph import LedgerRunner
 
 @tool
 def send_confirmation(order_id: str, text: str) -> dict:
@@ -29,7 +29,7 @@ agent = create_agent(
     middleware=[boundary],
     checkpointer=saver,
 )
-runner = DurableAgentRunner(agent)
+runner = LedgerRunner(agent)
 config = {"configurable": {"thread_id": "order-workflow-123"}}
 outcome = runner.start({"messages": [("user", "Send the confirmation")]}, config)
 ```

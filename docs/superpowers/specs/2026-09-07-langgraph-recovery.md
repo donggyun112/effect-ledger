@@ -12,7 +12,7 @@ is deliberately not part of the ID: a changed version must conflict server-side.
 The original AIMessage/tool arguments are checkpointed before tool dispatch with
 durability=sync. No model-visible operation ID or recovery authority is accepted.
 
-`DurableAgentRunner` wraps a root compiled create_agent graph: durable checkpointer
+`LedgerRunner` wraps a root compiled create_agent graph: durable checkpointer
 required, start rejects unfinished threads, resume reuses saved graph state and
 maps only recovery interrupts automatically. Ordinary HITL requires explicit
 answers. A resume signal is never a retry grant. Repeated unresolved resumes must

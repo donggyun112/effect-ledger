@@ -9,8 +9,8 @@ from pathlib import Path
 from mcp import StdioServerParameters
 from test_langgraph_recovery import GraphFixture
 
-from langgraph_effect_ledger.mcp_client import StdioEffectClient
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.mcp_client import StdioEffectClient
+from effect_ledger.operations import EffectExecutor
 
 
 class GraphMCPTest(GraphFixture, unittest.TestCase):

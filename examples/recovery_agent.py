@@ -1,4 +1,4 @@
-"""Runnable durable agent demo: local MCP mailbox, no LLM/API credentials."""
+"""Runnable recovery demo: local MCP mailbox, no LLM/API credentials."""
 
 import argparse
 import json
@@ -14,9 +14,9 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.sqlite import SqliteSaver
 from mcp import StdioServerParameters
 
-from langgraph_effect_ledger.langgraph import DurableAgentRunner, durable_tool
-from langgraph_effect_ledger.mcp_client import StdioEffectClient
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.langgraph import LedgerRunner, durable_tool
+from effect_ledger.mcp_client import StdioEffectClient
+from effect_ledger.operations import EffectExecutor
 
 
 class DemoModel(BaseChatModel):
@@ -82,7 +82,7 @@ def main():
     effect = durable_tool(name="send_message", description="Send one message to the local mailbox",
                           workflow_id="durable-demo:v1", effect="message.send:v1", execute=client.execute)
     with closing(sqlite3.connect(root / "checkpoints.sqlite", check_same_thread=False)) as db:
-        runner = DurableAgentRunner(create_agent(DemoModel(), [effect], checkpointer=SqliteSaver(db)))
+        runner = LedgerRunner(create_agent(DemoModel(), [effect], checkpointer=SqliteSaver(db)))
         config = {"configurable": {"thread_id": args.thread}}
         if args.command == "status":
             state = runner.graph.get_state(config)

@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from langgraph_effect_ledger.mcp import create_server
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.mcp import create_server
+from effect_ledger.operations import EffectExecutor
 
 (Path(sys.argv[1]).parent / f"mcp-server-{os.getppid()}.pid").write_text(str(os.getpid()))
 

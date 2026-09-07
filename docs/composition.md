@@ -19,7 +19,7 @@ MCP 서버 ──────┘       │
 ## 저장소 교체
 
 ```python
-from langgraph_effect_ledger import EffectExecutor, SQLiteOperationStore
+from effect_ledger import EffectExecutor, SQLiteOperationStore
 
 executor = EffectExecutor(store=SQLiteOperationStore("effects.sqlite"), scope="account-1")
 # 이전 호출 방식도 같은 SQLite 구현을 사용한다.
@@ -30,8 +30,8 @@ Postgres는 선택 의존성이다. 코어 설치는 psycopg·LangChain·MCP를 
 
 ```python
 import os
-from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.postgres import PostgresOperationStore
+from effect_ledger import EffectExecutor
+from effect_ledger.postgres import PostgresOperationStore
 
 executor = EffectExecutor(
     store=PostgresOperationStore(os.environ["EFFECT_LEDGER_DSN"]),
@@ -77,7 +77,7 @@ SDK 내부 재시도는 제공자 어댑터가 알아야 한다. `bind`는 얇�
 core와 MCP는 operation_id를 직접 받는다. LangGraph의 `durable_tool`에도 콜백으로 제공할 수 있다.
 
 ```python
-from langgraph_effect_ledger.langgraph import durable_tool
+from effect_ledger.langgraph import durable_tool
 
 send_tool = durable_tool(
     name="send_confirmation", description="Send the order confirmation",
@@ -110,7 +110,7 @@ config = {"configurable": {
 사람 대신 호출할 수 있다. 라이브러리가 워커 종료 여부를 증명해 주지는 않는다.
 
 ```python
-from langgraph_effect_ledger import EffectExecutor, RecoveryDecision
+from effect_ledger import EffectExecutor, RecoveryDecision
 
 def reconcile(operation):
     # 앱의 제공자 어댑터: 원본 요청과 정확히 대응하는 완료 기록만 반환한다.

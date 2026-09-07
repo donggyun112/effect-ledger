@@ -13,7 +13,7 @@ from pathlib import Path
 class ExampleTest(unittest.TestCase):
     def test_documented_start_confirm_resume(self):
         with tempfile.TemporaryDirectory() as directory:
-            script = Path(__file__).resolve().parents[1] / "examples" / "durable_agent.py"
+            script = Path(__file__).resolve().parents[1] / "examples" / "recovery_agent.py"
             def run(*args):
                 completed = subprocess.run(
                     [sys.executable, str(script), "--state-dir", directory, *args],

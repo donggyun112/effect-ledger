@@ -17,9 +17,9 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from langgraph_effect_ledger.langchain import ExecutionBoundary, current_operation
-from langgraph_effect_ledger.langgraph import DurableAgentRunner, durable_tool
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.langchain import ExecutionBoundary, current_operation
+from effect_ledger.langgraph import LedgerRunner, durable_tool
+from effect_ledger.operations import EffectExecutor
 
 root, url, action, transport, boundary = Path(sys.argv[1]), *sys.argv[2:]
 
@@ -54,7 +54,7 @@ executor = EffectExecutor(root / "ledger.sqlite", scope="test-account")
 if transport == "mcp":
     from mcp import StdioServerParameters
 
-    from langgraph_effect_ledger.mcp_client import StdioEffectClient
+    from effect_ledger.mcp_client import StdioEffectClient
     client = StdioEffectClient(StdioServerParameters(command=sys.executable, args=[
         str(Path(__file__).with_name("langgraph_http_server.py")), str(root / "ledger.sqlite"), url,
     ]))
@@ -91,7 +91,7 @@ if transport == 'boundary':
     middleware = [AfterCommit(), ExecutionBoundary(executor,
         tools={'send_message': 'message.send:v1'}, workflow_id='crash-agent:v1')]
 with closing(sqlite3.connect(root / "checkpoints.sqlite", check_same_thread=False)) as db:
-    runner = DurableAgentRunner(create_agent(Model(), [effect], middleware=middleware, checkpointer=SqliteSaver(db)))
+    runner = LedgerRunner(create_agent(Model(), [effect], middleware=middleware, checkpointer=SqliteSaver(db)))
     config = {"configurable": {"thread_id": "crash-thread"}}
     result = runner.start({"messages": [("user", "send")]}, config) if action == "start" else runner.resume(config)
     print(json.dumps({

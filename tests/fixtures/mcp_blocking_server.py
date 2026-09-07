@@ -4,8 +4,8 @@ import sys
 import time
 from pathlib import Path
 
-from langgraph_effect_ledger.mcp import create_server
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.mcp import create_server
+from effect_ledger.operations import EffectExecutor
 
 root = Path(sys.argv[1])
 

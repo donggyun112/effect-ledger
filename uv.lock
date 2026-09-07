@@ -657,7 +657,7 @@ wheels = [
 ]
 
 [[package]]
-name = "langgraph-effect-ledger"
+name = "effect-ledger"
 version = "0.1.0"
 source = { editable = "." }
 

@@ -11,7 +11,7 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from langgraph_effect_ledger.operations import EffectExecutor
+from effect_ledger.operations import EffectExecutor
 
 
 class MCPTest(unittest.IsolatedAsyncioTestCase):

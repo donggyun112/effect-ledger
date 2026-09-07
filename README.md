@@ -1,4 +1,4 @@
-# langgraph-effect-ledger
+# effect-ledger
 
 [![CI](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -23,9 +23,9 @@ everything from embedded execution to a multi-host store.
 
 ```python
 from langchain.agents import create_agent
-from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import ExecutionBoundary
-from langgraph_effect_ledger.langgraph import DurableAgentRunner
+from effect_ledger import EffectExecutor
+from effect_ledger.langchain import ExecutionBoundary
+from effect_ledger.langgraph import LedgerRunner
 
 boundary = ExecutionBoundary(
     EffectExecutor("effects.sqlite", scope="account-1"),
@@ -34,7 +34,7 @@ boundary = ExecutionBoundary(
 # model, send_message and saver are your existing model, single-effect tool
 # and durable checkpointer.
 agent = create_agent(model, [send_message], middleware=[boundary], checkpointer=saver)
-runner = DurableAgentRunner(agent)
+runner = LedgerRunner(agent)
 ```
 
 Every registered tool is protected by default. Tool names and argument schemas
@@ -46,9 +46,9 @@ tool middlewares, install the boundary last.
 ## Install
 
 ```bash
-pip install "langgraph-effect-ledger[langchain]"
-pip install "langgraph-effect-ledger[mcp]"       # to expose effects over MCP
-pip install "langgraph-effect-ledger[postgres]"  # for a multi-host store
+pip install "effect-ledger[langchain]"
+pip install "effect-ledger[mcp]"       # to expose effects over MCP
+pip install "effect-ledger[postgres]"  # for a multi-host store
 ```
 
 Working inside a clone of this repository, use `uv sync --extra langchain`
@@ -143,7 +143,7 @@ state of provider requests already sent.** `workers_stopped=True` is the
 caller's assertion, not a mechanism that blocks a remote effect.
 
 ```python
-from langgraph_effect_ledger import EffectExecutor
+from effect_ledger import EffectExecutor
 
 executor = EffectExecutor("/tmp/effects.sqlite", scope="local-mailbox")
 record = executor.get("message-1")
@@ -206,7 +206,7 @@ authorization and per-account routing separately.
 uv run --all-extras python -m unittest discover -s tests -p 'test_operation*.py' -v
 uv run --all-extras python -m unittest discover -s tests -p test_mcp_server.py -v
 uv run --all-extras python -m unittest discover -s tests -p 'test_langgraph*.py' -v
-uv run --all-extras python -m unittest discover -s tests -p test_durable_agent_example.py -v
+uv run --all-extras python -m unittest discover -s tests -p test_recovery_agent_example.py -v
 # With a dedicated PostgreSQL test database, run the full contract and kill tests:
 EFFECT_LEDGER_TEST_DSN=postgresql://postgres@localhost/effect_ledger_test \
   uv run --all-extras python -m unittest discover -s tests -v

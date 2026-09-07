@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier, Event
 
-from langgraph_effect_ledger.operations import EffectExecutor, OperationConflict
+from effect_ledger.operations import EffectExecutor, OperationConflict
 
 
 class OperationsContract:
@@ -19,7 +19,7 @@ class OperationsContract:
         self.calls = []
 
     def make_executor(self, scope="account-a"):
-        from langgraph_effect_ledger import SQLiteOperationStore
+        from effect_ledger import SQLiteOperationStore
         return EffectExecutor(store=SQLiteOperationStore(self.path), scope=scope)
 
     def effect(self, call):

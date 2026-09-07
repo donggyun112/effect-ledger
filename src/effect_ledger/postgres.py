@@ -33,8 +33,10 @@ class PostgresOperationStore(SQLStore):
 
     @contextmanager
     def _transaction(self, scope: str) -> Generator[_Connection, None, None]:
+        # This string names the advisory lock, so hosts only exclude each other
+        # while they agree on it. Changing it must not be a rolling deploy.
         lock = int.from_bytes(hashlib.sha256(
-            ('langgraph-effect-ledger:' + scope).encode()).digest()[:8],
+            ('effect-ledger:' + scope).encode()).digest()[:8],
             'big', signed=True)
         with psycopg.connect(self.dsn, row_factory=dict_row, connect_timeout=10) as db:
             db.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')

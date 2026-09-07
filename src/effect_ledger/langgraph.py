@@ -68,7 +68,7 @@ def durable_tool(
     )
 
 
-class DurableAgentRunner:
+class LedgerRunner:
     """Guard root-agent start/resume with synchronous checkpoint durability.
 
     The host serializes threads. Direct graph calls and time travel bypass these guards."""

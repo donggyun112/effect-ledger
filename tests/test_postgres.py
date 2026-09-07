@@ -6,7 +6,7 @@ from uuid import uuid4
 from test_operation_crash import CrashContract, ProviderFixture
 from test_operations import OperationsContract
 
-from langgraph_effect_ledger import EffectExecutor
+from effect_ledger import EffectExecutor
 
 
 @unittest.skipUnless(os.environ.get('EFFECT_LEDGER_TEST_DSN'), 'Set EFFECT_LEDGER_TEST_DSN for real PostgreSQL')
@@ -17,7 +17,7 @@ class PostgresTest(OperationsContract, unittest.TestCase):
         self.executor = self.make_executor()
 
     def make_executor(self, scope='account-a'):
-        from langgraph_effect_ledger.postgres import PostgresOperationStore
+        from effect_ledger.postgres import PostgresOperationStore
         return EffectExecutor(store=PostgresOperationStore(os.environ['EFFECT_LEDGER_TEST_DSN']),
                               scope=self.namespace + scope)
 

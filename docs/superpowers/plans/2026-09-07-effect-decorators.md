@@ -31,7 +31,7 @@ actionable rename diagnostic.
 
 **Files:**
 - Modify: `tests/test_execution_boundary.py`
-- Modify: `src/langgraph_effect_ledger/langchain.py`
+- Modify: `src/effect_ledger/langchain.py`
 
 **Interfaces:**
 - Produces: `READ_ONLY`, `CONTROL`, and
@@ -48,7 +48,7 @@ actionable rename diagnostic.
 
 **Files:**
 - Modify: `tests/test_execution_boundary.py`
-- Modify: `src/langgraph_effect_ledger/langchain.py`
+- Modify: `src/effect_ledger/langchain.py`
 
 **Interfaces:**
 - Consumes: `CONTROL` from Task 1.
@@ -66,7 +66,7 @@ actionable rename diagnostic.
 
 **Files:**
 - Modify: `tests/test_execution_boundary.py`
-- Modify: `src/langgraph_effect_ledger/langchain.py`
+- Modify: `src/effect_ledger/langchain.py`
 
 **Interfaces:**
 - Consumes: automatic and explicit effect resolution from Task 1.
@@ -85,7 +85,7 @@ actionable rename diagnostic.
 **Files:**
 - Modify: `README.md`
 - Modify: `docs/langchain-boundary.md`
-- Modify: `examples/durable_agent.py`
+- Modify: `examples/recovery_agent.py`
 - Modify: `tests/fixtures/langgraph_worker.py`
 - Modify: tests containing the legacy explicit allowlist constructor
 

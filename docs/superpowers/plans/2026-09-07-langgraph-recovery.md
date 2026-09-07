@@ -11,7 +11,7 @@
   tool IDs, repeated unresolved resume, operator complete/retry, no model progress
   while unresolved, and blocking new inputs to an unfinished thread.
 - [x] Observe missing adapter failure, implement langgraph.py with durable_tool
-  and DurableAgentRunner, and pass the tests. Add ordinary HITL/async cases.
+  and LedgerRunner, and pass the tests. Add ordinary HITL/async cases.
 - [x] Add MCP stdio execute client and test the same graph recovery against the
   real example server. Scope remains server-owned and resolve is never a tool.
 - [x] Add process failure workers and a durable fake provider. Kill after remote

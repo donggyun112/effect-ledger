@@ -83,7 +83,7 @@ class ExecutionBoundary(AgentMiddleware):
     def _encode(message: Any) -> dict[str, Any]:
         if not isinstance(message, ToolMessage):
             raise UnsupportedToolResult(
-                'Durable tools must return ToolMessage; mark no-effect control tools CONTROL')
+                'Protected tools must return ToolMessage; mark no-effect control tools CONTROL')
         if message.status != 'success':
             raise ValueError('Protected tools must return a successful ToolMessage')
         data = message.model_dump(mode='python', exclude={'id', 'tool_call_id', 'name'})
@@ -92,7 +92,7 @@ class ExecutionBoundary(AgentMiddleware):
             _json(envelope)  # Reject coercion of non-JSON artifacts.
         except ValueError as exc:
             raise UnsupportedToolResult(
-                'Durable tool results and artifacts must contain only JSON values') from exc
+                'Protected tool results and artifacts must contain only JSON values') from exc
         return envelope
 
     @staticmethod
