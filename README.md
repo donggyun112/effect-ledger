@@ -30,7 +30,6 @@ runner = DurableAgentRunner(agent)
 등록된 모든 툴은 기본적으로 보호된다. 기존 툴의 이름·인자 스키마를 유지한다. 읽기·제어
 예외와 안정적인 효과 이름은 [LangChain 실행 경계 가이드](docs/langchain-boundary.md)의
 `tools` 설정으로 지정한다. 여러 툴 미들웨어를 쓴다면 경계를 마지막에 배치한다.
-[LangChain 실행 경계 가이드](docs/langchain-boundary.md)에 적용 코드·HITL·복구·조합 제약을 정리했다.
 
 ## 설치
 

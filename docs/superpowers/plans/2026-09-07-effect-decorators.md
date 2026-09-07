@@ -37,12 +37,12 @@ actionable rename diagnostic.
 - Produces: `READ_ONLY`, `CONTROL`, and
   `ExecutionBoundary(executor, *, tools=None, workflow_id=None, operation_id=None)`.
 
-- [ ] Add failing integration tests proving an omitted tool is durable, both sentinels bypass
+- [x] Add failing integration tests proving an omitted tool is durable, both sentinels bypass
   the ledger, invalid values fail at construction, and explicit strings override effect names.
-- [ ] Run `uv run --all-extras python -m unittest tests.test_execution_boundary -v` and confirm
-  failures are caused by the missing API.
-- [ ] Implement immutable sentinels, constructor validation, and one sync/async policy resolver.
-- [ ] Re-run the focused suite and keep existing replay behavior green.
+- [x] Run `uv run --all-extras python -m unittest discover -s tests -p test_execution_boundary.py -v`
+  and confirm failures are caused by the missing API.
+- [x] Implement immutable sentinels, constructor validation, and one sync/async policy resolver.
+- [x] Re-run the focused suite and keep existing replay behavior green.
 
 ### Task 2: Real control and result compatibility
 
@@ -54,13 +54,13 @@ actionable rename diagnostic.
 - Consumes: `CONTROL` from Task 1.
 - Produces: passthrough of native `Command` values for configured control tools.
 
-- [ ] Add an actual `create_agent` tool returning `Command`; prove omission pauses as
+- [x] Add an actual `create_agent` tool returning `Command`; prove omission pauses as
   indeterminate and `CONTROL` completes without an operation record.
-- [ ] Add an actual non-JSON artifact tool and prove the durable default pauses.
-- [ ] Run the focused tests and confirm the new cases fail before implementation where needed.
-- [ ] Add only the diagnostic error types needed to make the pause explain the configuration
+- [x] Add an actual non-JSON artifact tool and prove the durable default pauses.
+- [x] Run the focused tests and confirm the new cases fail before implementation where needed.
+- [x] Add only the diagnostic error types needed to make the pause explain the configuration
   mistake; do not infer policies from annotations or runtime result types.
-- [ ] Re-run the focused suite.
+- [x] Re-run the focused suite.
 
 ### Task 3: Rename-safe diagnostics
 
@@ -73,12 +73,12 @@ actionable rename diagnostic.
 - Produces: an effect-conflict pause containing stored effect, requested effect, stable override
   guidance, and `workflow_id` bump guidance.
 
-- [ ] Add a failing replay test using a stable host operation ID across a tool rename.
-- [ ] Prove the default name conflicts before the renamed provider function runs.
-- [ ] Prove `tools={"new_name": "old-stable-effect"}` replays the completed result.
-- [ ] Implement conflict enrichment without exposing request payloads or changing core store
+- [x] Add a failing replay test using a stable host operation ID across a tool rename.
+- [x] Prove the default name conflicts before the renamed provider function runs.
+- [x] Prove `tools={"new_name": "old-stable-effect"}` replays the completed result.
+- [x] Implement conflict enrichment without exposing request payloads or changing core store
   authority.
-- [ ] Re-run the focused suite.
+- [x] Re-run the focused suite.
 
 ### Task 4: Migrate examples and documentation
 
@@ -93,11 +93,11 @@ actionable rename diagnostic.
 - Consumes: the final `tools` API and exported sentinels.
 - Produces: examples with default-on behavior and explicit deployment-test obligations.
 
-- [ ] Replace every legacy allowlist call with default-on or `tools` configuration.
-- [ ] Document control/non-JSON integration testing, rename migration, and the danger of using
+- [x] Replace every legacy allowlist call with default-on or `tools` configuration.
+- [x] Document control/non-JSON integration testing, rename migration, and the danger of using
   `READ_ONLY` to avoid database contention.
-- [ ] Keep remote `durable_tool` documentation as an advanced MCP transport path.
-- [ ] Run the example and focused LangGraph crash tests.
+- [x] Keep remote `durable_tool` documentation as an advanced MCP transport path.
+- [x] Run the example and focused LangGraph crash tests.
 
 ### Task 5: Regression and package verification
 
@@ -108,8 +108,8 @@ actionable rename diagnostic.
 - Consumes: Tasks 1-4.
 - Produces: a release-ready source tree with no stale public examples.
 
-- [ ] Search public examples and tests and confirm no obsolete constructor calls remain.
-- [ ] Run the full Python 3.13 suite, including PostgreSQL when the test DSN is available.
-- [ ] Run the Python 3.10 compatibility suite.
-- [ ] Run `uv build` and `git diff --check`.
-- [ ] Review the final diff against every requirement in the spec.
+- [x] Search public examples and tests and confirm no obsolete constructor calls remain.
+- [x] Run the full Python 3.13 suite, including PostgreSQL when the test DSN is available.
+- [x] Run the Python 3.10 compatibility suite.
+- [x] Run `uv build` and `git diff --check`.
+- [x] Review the final diff against every requirement in the spec.
