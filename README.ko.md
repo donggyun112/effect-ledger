@@ -18,9 +18,9 @@
 제공자 멱등성을 만들어내지 않고 exactly-once도 보장하지 않는다. 이미 나갔을지 모르는 것을
 기록하고 나머지는 추측하지 않는다.
 
-[LangChain 실행 경계](docs/langchain-boundary.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
+[LangChain 실행 경계](docs/langchain-boundary.ko.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
 하나를 얹는 것이다. 나머지는 따로 고른다 — 저장소(SQLite/Postgres), 업무 ID, 복구 정책. 코어는
-프레임워크에 의존하지 않는다. [조합 API와 확장 계약](docs/composition.md)이 다중 호스트 저장소까지
+프레임워크에 의존하지 않는다. [조합 API와 확장 계약](docs/composition.ko.md)이 다중 호스트 저장소까지
 설명한다.
 
 ```python
@@ -39,7 +39,7 @@ runner = LedgerRunner(agent)
 ```
 
 등록된 모든 툴은 기본적으로 보호된다. 기존 툴의 이름·인자 스키마를 유지한다. 읽기·제어
-예외와 안정적인 효과 이름은 [LangChain 실행 경계 가이드](docs/langchain-boundary.md)의
+예외와 안정적인 효과 이름은 [LangChain 실행 경계 가이드](docs/langchain-boundary.ko.md)의
 `tools` 설정으로 지정한다. 여러 툴 미들웨어를 쓴다면 경계를 마지막에 배치한다.
 
 ## 설치

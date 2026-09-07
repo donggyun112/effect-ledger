@@ -1,9 +1,12 @@
-# 기존 LangChain 툴에 실행 경계 붙이기
+# Putting an execution boundary on tools you already have
 
-Semora의 네이티브 실행 경계와 결과를 먼저 저장하는 설계를 참고했다. LangChain의 Agent,
-BaseTool/StructuredTool, 모델 루프, LangGraph 체크포인터를 그대로 사용한다. 미들웨어를
-연결하면 등록된 모든 툴이 기본적으로 보호된다. 툴 인자를 `request={...}`로 다시 작성할
-필요가 없다.
+*[한국어](langchain-boundary.ko.md)*
+
+This follows Semora's native execution boundary and its store-the-result-first
+design. LangChain's Agent, BaseTool/StructuredTool, model loop and the LangGraph
+checkpointer are used as they are. Install the middleware and every registered
+tool is protected by default. You do not rewrite tool arguments into
+`request={...}`.
 
 ```python
 from langchain.agents import create_agent
@@ -15,7 +18,7 @@ from effect_ledger.langgraph import LedgerRunner
 @tool
 def send_confirmation(order_id: str, text: str) -> dict:
     """Send one order confirmation."""
-    # provider는 앱의 제공자 SDK. 실제 멱등성 키 지원이 있을 때만 전달한다.
+    # provider is your provider SDK. Pass the key only if it really supports one.
     return provider.send(order_id=order_id, text=text,
                          idempotency_key=current_operation().provider_key)
 
@@ -34,15 +37,17 @@ config = {"configurable": {"thread_id": "order-workflow-123"}}
 outcome = runner.start({"messages": [("user", "Send the confirmation")]}, config)
 ```
 
-`model`, `saver`, `provider`는 앱의 모델·내구 체크포인터·제공자 연결이다. `current_operation()`은
-선택 기능이다. 기존 툴은 그대로 둘 수 있고, 제공자 키가 필요한 툴만 이 접근자를 사용한다.
-접근자는 보호된 실행 안에서만 유효하며 모델 스키마에 인자를 추가하지 않는다.
+`model`, `saver` and `provider` are your model, durable checkpointer and provider
+connection. `current_operation()` is optional. Existing tools can be left alone;
+only a tool that needs the provider key reaches for this accessor. It is valid
+only inside a protected execution and adds no argument to the model schema.
 
-## 툴 정책
+## Tool policy
 
-`tools`는 보호 대상을 고르는 allowlist가 아니다. 설정에 없는 툴도 `langchain.tool:<이름>`
-효과로 원장을 통과한다. 확실한 읽기 툴, 외부 효과가 없는 제어 툴, 배포 사이에 유지할 효과
-이름만 지정한다.
+`tools` is not an allowlist of what to protect. A tool absent from that mapping
+still goes through the ledger, under the effect `langchain.tool:<name>`. Name only
+the tools that are certainly reads, the control tools with no external effect, and
+the effect names you want to survive a deploy.
 
 ```python
 boundary = ExecutionBoundary(
@@ -56,67 +61,81 @@ boundary = ExecutionBoundary(
 )
 ```
 
-`READ_ONLY`와 `CONTROL`은 원장 쓰기 없이 기존 handler를 호출한다. `READ_ONLY`는 성능 옵션이
-아니라 외부 변경이 없다는 정확성 선언이다. 쓰기 가능성이 있는 툴을 SQLite 경합 때문에
-`READ_ONLY`로 지정하면 체크포인트 재실행에서 효과가 중복될 수 있다.
+`READ_ONLY` and `CONTROL` call the existing handler with no ledger write.
+`READ_ONLY` is a correctness claim that nothing outside changes, not a
+performance option. Marking a possibly-writing tool `READ_ONLY` to avoid SQLite
+contention lets a checkpoint replay repeat its effect.
 
-`Command`를 반환하는 handoff·상태 제어 툴은 `CONTROL`로 지정한다. 이를 빠뜨리거나 durable
-툴이 JSON이 아닌 artifact를 반환하면 실제 호출 뒤 `indeterminate`로 멈춘다. 반환 타입만으로
-안전하게 판별할 수 없으므로 **배포 전에 등록된 모든 툴의 실제 반환 경로를 한 번씩 호출하는
-통합 테스트가 필요하다.** 외부 효과가 있는 툴의 artifact는 JSON으로 바꿔야 하며, 오류를
-피하려고 그 툴을 `CONTROL`로 지정하면 안 된다.
+Handoff and state-control tools that return `Command` must be marked `CONTROL`.
+Miss one, or let a durable tool return a non-JSON artifact, and the operation
+stops as `indeterminate` after the call really happened. Return types cannot be
+classified safely from the outside, so **an integration test that calls every
+registered tool once along its real return path is required before deploying.**
+An artifact from a tool with an external effect has to become JSON; do not mark
+that tool `CONTROL` to make the error go away.
 
-기본 효과 이름은 툴 이름을 포함한다. 보호된 툴을 rename하면 기존 실행을 재개할 때 효과
-바인딩이 충돌한다. **복구 방법은 이전 문자열을 `tools`에 명시하는 것 하나뿐이다.** 그래야
-기록된 결과를 그대로 재생하고 효과를 다시 호출하지 않는다.
+The default effect name contains the tool name. Renaming a protected tool
+conflicts on the effect binding when an existing run resumes. **The only recovery
+is naming the previous string in `tools`,** which replays the recorded outcome
+without calling the effect again.
 
-`workflow_id`를 올리는 것은 복구가 아니다. 실행 ID 공간이 통째로 바뀌어 새 오퍼레이션이
-되므로, 이미 `completed`인 효과라도 **한 번 더 실행된다.** 결제·발송 툴이면 중복 청구·중복
-발송이다. 새 ID 공간은 의도적으로 새 행동을 일으킬 때만 쓴다.
+Raising `workflow_id` is not a recovery. It replaces the whole identity space
+with a new operation, so an effect that is already `completed` **runs one more
+time.** On a payment or delivery tool that is a duplicate charge or a duplicate
+send. Use a new identity space only to perform a deliberately new action.
 
-자동 이름에는 자동으로 올라가지 않는 `:v1` 접미사를 붙이지 않는다.
+The generated name carries no `:v1` suffix, because nothing would raise it.
 
-## 경계와 조합 순서
+## The boundary and composition order
 
 ```text
-모델·네이티브 HITL
-  → 바깥 툴 미들웨어: 승인 / 재시도 / 결과 후처리
-    → ExecutionBoundary: ID·원본 인자 결합 → 실행권 커밋
-      → 기존 툴: 단일 효과
-    ← ToolMessage 결과 커밋 / 미해결 보류
-  ← 결과 후처리
+model and native HITL
+  → outer tool middleware: approval / retry / result post-processing
+    → ExecutionBoundary: bind ID and original arguments → commit the claim
+      → your tool: one effect
+    ← commit the ToolMessage result / hold as unresolved
+  ← result post-processing
 ```
 
-`ExecutionBoundary`는 **툴을 감싸는 미들웨어 중 마지막**에 둔다. LangChain은 첫 미들웨어를
-가장 바깥에 배치하므로 마지막 경계가 툴에 가장 가깝다. 바깥 재시도가 handler를 반복 호출해도
-매번 원장을 통과한다. 바깥 후처리가 결과를 받은 뒤 실패해도 이미 저장된 툴 결과를 재생한다.
-[LangChain 미들웨어 계약](https://docs.langchain.com/oss/python/langchain/middleware/custom)
+Install `ExecutionBoundary` **last among the tool-wrapping middleware.** LangChain
+places the first middleware outermost, so the last boundary sits closest to the
+tool. An outer retry that calls the handler repeatedly still goes through the
+ledger each time. If outer post-processing fails after receiving the result, the
+already-stored tool result is replayed. See the
+[LangChain middleware contract](https://docs.langchain.com/oss/python/langchain/middleware/custom).
 
-Semora는 자체 정책·원장 협력자를 하나의 바깥 capability가 조정한다. 여기서는 LangChain의
-다른 툴 미들웨어가 임의로 재시도할 수 있으므로 **배치까지 똑같이 옮기지 않았다**.
-경계 안쪽에 재시도 미들웨어를 놓으면 한 번의 실행권 안에서 툴이 여러 번 실행될 수 있다.
-경계 바깥 미들웨어 자체의 외부 효과도 보호 대상이 아니다.
+Semora has one outer capability coordinating its own policy and ledger
+collaborators. **That placement was deliberately not copied here,** because any
+other LangChain tool middleware may retry on its own. A retry middleware placed
+inside the boundary can run the tool several times within one claim. External
+effects performed by middleware outside the boundary are not protected either.
 
-네이티브 `HumanInTheLoopMiddleware`와 함께 쓸 수 있다. 일반 승인은 명시적인 사용자 응답을
-요구하고, 승인 전에는 툴의 실행권을 획득하지 않는다. `resume()`의 복구 신호는 사람의 승인이나
-제공자 재시도 허가를 대신하지 않는다.
+The native `HumanInTheLoopMiddleware` works alongside this. Ordinary approval
+requires an explicit user response, and no claim is acquired before approval. The
+recovery signal in `resume()` does not stand in for a human approval or for a
+provider retry authorization.
 
-## 결과와 복구
+## Results and recovery
 
-성공한 ToolMessage의 content·artifact·추가 메타데이터를 JSON으로 보존한다. 재생할 때 메시지
-ID는 새 그래프 메시지로 부여되고 tool_call_id는 현재 호출에 연결된다. 같은 업무 ID를 다른
-그래프 호출에서 조회해도 과거 tool_call_id를 반환하지 않는다.
+The content, artifact and extra metadata of a successful ToolMessage are
+preserved as JSON. On replay the message ID is assigned by the new graph message
+and the tool_call_id is bound to the current call. Looking up the same business
+ID from a different graph invocation never returns a past tool_call_id.
 
-일반 예외와 status=error인 ToolMessage는 `indeterminate`가 된다. Semora의 일반 오류 결과
-완료 처리와 의도적으로 다르다. TimeoutError만으로 외부 효과의 실패를 확정하지 않는다.
-취소·GraphInterrupt는 실행권을 해제하지 않는다. 보호된 툴 내부 interrupt를 일반 승인 경로로
-사용하지 말고, 승인 게이트를 효과 경계 앞에 둔다.
+An ordinary exception, and a ToolMessage with `status=error`, both become
+`indeterminate`. This deliberately differs from Semora's treatment of a general
+error result as a completion. A `TimeoutError` alone does not establish that the
+external effect failed. Cancellation and `GraphInterrupt` do not release the
+claim. Do not use an interrupt inside a protected tool as an ordinary approval
+path; put the approval gate in front of the effect boundary.
 
-운영자가 실제 결과를 확인해 complete를 기록할 때는 메시지 결과 형식을 지정한다.
+When an operator has confirmed the real outcome and records a completion, the
+message result format is explicit.
 
 ```python
-# pending은 outcome['__interrupt__'][0].value에서 얻은 원장 상태다.
-# 이전 워커와 전송된 요청을 정리하고 제공자의 실제 결과를 확인한 경우:
+# pending is the ledger status from outcome['__interrupt__'][0].value.
+# Only after the previous workers and the requests they sent were reconciled,
+# and the provider's real result was confirmed:
 executor.resolve(
     pending["operation_id"], expected_version=pending["version"],
     decision_id="verified-confirmation-123", action="complete",
@@ -126,38 +145,53 @@ executor.resolve(
 outcome = runner.resume(config)
 ```
 
-`RecoveryPolicy`도 같은 envelope를 result로 반환한다. `ExecutionBoundary.result()`는 메시지
-포맷 생성기이며 제공자 성공을 확인하거나 복구를 승인하는 함수가 아니다. 잘못된 완료 결과
-포맷은 `result_error`로 중단된다. 저장된 완료 결과는 불변이므로 올바른 포맷으로 판정해야 한다.
+A `RecoveryPolicy` returns the same envelope as its result.
+`ExecutionBoundary.result()` builds a message format; it does not confirm a
+provider success and does not authorize a recovery. A malformed completion result
+stops as `result_error`. A stored completion is immutable, so the decision has to
+carry the correct format.
 
-## 지원 범위
+The `effect-ledger` console lists and settles these from a terminal. See
+**Operator recovery** in the README.
 
-- 기존 동기·비동기 툴을 지원한다. 비동기 그래프에는 내구 AsyncSqliteSaver 등의 체크포인터와
-  `runner.astart/aresume`을 쓴다. 저장소 I/O는 워커 스레드로 분리한다.
-- 등록된 모든 툴을 기본적으로 보호한다. `READ_ONLY`와 `CONTROL`로 선언한 툴만 원장을
-  우회한다.
-- durable 툴은 단일 외부 효과, 고정된 의미, JSON으로 표현 가능한 결과라는 계약이 필요하다.
-  복수 효과·내부 승인 interrupt는 지원하지 않는다. 실행 뒤 지원하지 않는 결과가 나오면
-  미해결로 보류한다.
-- 제공자 계정은 executor.scope에 고정한다. 효과에 영향을 주는 값은 원장에 결합되는 툴 인자에
-  넣고, 구현 의미가 바뀌면 effect 버전을 바꾼다. runtime.context나 외부 mutable 상태에서
-  수신자·금액 등을 가져오면 저장된 인자만으로 재실행 의미를 고정할 수 없다.
-- `operation_id=lambda runtime: ...`로 호스트 업무 ID를 제공할 수 있다. 생략하면 workflow와
-  체크포인트의 부모 메시지·툴 호출 ID로 파생한다. 서로 다른 업무는 다른 ID가 필요하다.
-- SDK 내부 재시도는 이 경계보다 안쪽이다. 제공자 멱등성 계약에 맞게 설정해야 한다.
-- 같은 thread의 호출 직렬화와 내구 체크포인터는 호스트 책임이다. root create_agent의 최신
-  체크포인트 범위이며 임의 StateGraph·서브그래프 지원을 주장하지 않는다.
-- 같은 툴에 `durable_tool`과 ExecutionBoundary를 이중 적용하지 않는다. 효과를 다른 프로세스가
-  실행하고 원장이 이 프로세스 밖에 있는 배치(MCP 서버, 원격 HTTP 제공자)에는
-  [durable_tool 경로](langgraph-recovery.md)를 쓴다.
+## Scope of support
 
-## 검증
+- Existing sync and async tools are supported. An async graph needs a durable
+  checkpointer such as AsyncSqliteSaver and `runner.astart` / `runner.aresume`.
+  Store I/O is moved to a worker thread.
+- Every registered tool is protected by default. Only tools declared `READ_ONLY`
+  or `CONTROL` bypass the ledger.
+- A durable tool must be one external effect with fixed meaning and a result
+  expressible as JSON. Multiple effects and internal approval interrupts are not
+  supported. An unsupported result produced after execution is held as unresolved.
+- The provider account is fixed by `executor.scope`. Put every effect-relevant
+  value in the tool arguments that get bound into the ledger, and change the
+  effect version when the implementation's meaning changes. Reading a recipient
+  or an amount from `runtime.context` or other mutable state means the stored
+  arguments no longer fix what a re-execution does.
+- `operation_id=lambda runtime: ...` supplies a host business ID. Omitted, it is
+  derived from the workflow and the checkpointed parent message and tool call ID.
+  Different business operations need different IDs.
+- SDK-internal retries sit inside this boundary. Configure them to match the
+  provider's idempotency contract.
+- Serializing calls on one thread, and the durable checkpointer, are the host's
+  responsibility. The scope is the latest checkpoint of a root `create_agent`;
+  no support for arbitrary StateGraphs or subgraphs is claimed.
+- Do not apply `durable_tool` and ExecutionBoundary to the same tool. When
+  another process performs the effect and the ledger lives outside this one — an
+  MCP server, a remote HTTP provider — use the
+  [durable_tool path](langgraph-recovery.md).
+
+## Verification
 
 ```bash
 uv run --all-extras python -m unittest discover -s tests -p test_execution_boundary.py -v
 uv run --all-extras python -m unittest discover -s tests -p test_langgraph_crash.py -k boundary -v
 ```
 
-실제 create_agent에서 원래 스키마, 오류 ToolMessage 보류, 완료 결과·artifact 재생, 호스트 ID,
-인자 충돌, 바깥 재시도, 후처리 실패, 네이티브 HITL과 async를 검사한다. 별도 프로세스·HTTP
-제공자로 외부 커밋 뒤 SIGKILL, 원장 커밋 뒤 SIGKILL, 허용된 재시도 중 두 번째 SIGKILL도 검사한다.
+Against a real `create_agent`, these check the original schema, holding an error
+ToolMessage, replaying a completed result and artifact, host IDs, argument
+conflicts, an outer retry, a post-processing failure, the native HITL and async.
+With a separate process and HTTP provider they also check SIGKILL after the
+external commit, SIGKILL after the ledger commit, and a second SIGKILL during a
+permitted retry.

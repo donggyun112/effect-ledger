@@ -3,7 +3,7 @@
 [![CI](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/langgraph-effect-ledger/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-*[한국어 README](README.ko.md) · the `docs/` guides are currently Korean only.*
+*[한국어 README](README.ko.md)*
 
 Your agent charged the card. The process died before the provider's reply came
 back. The graph resumes from its last checkpoint, calls the tool again, and
