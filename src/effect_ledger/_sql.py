@@ -29,22 +29,39 @@ class SQLStore:
                 PRIMARY KEY (scope, decision_id)
             )""")
 
-    def _get(self, db: Any, scope: str, operation_id: str) -> Operation | None:
-        row = db.execute(
-            "SELECT * FROM operations WHERE scope=? AND operation_id=?",
-            (scope, operation_id),
-        ).fetchone()
-        if row is None:
-            return None
+    @staticmethod
+    def _operation(row: Any) -> Operation:
         data = dict(row)
         data["request"] = json.loads(data["request"])
         data["result"] = json.loads(data["result"]) if data["result"] is not None else None
         return Operation(**data)
 
+    def _get(self, db: Any, scope: str, operation_id: str) -> Operation | None:
+        row = db.execute(
+            "SELECT * FROM operations WHERE scope=? AND operation_id=?",
+            (scope, operation_id),
+        ).fetchone()
+        return None if row is None else self._operation(row)
+
     def get(self, scope: str, operation_id: str) -> Operation | None:
         _text(operation_id, "operation_id")
         with self._transaction(scope) as db:
             return self._get(db, scope, operation_id)
+
+    def unresolved(self, scope: str, *, limit: int) -> list[Operation]:
+        """List operations awaiting a decision. Read-only; grants nothing.
+
+        Rows carry no timestamp, so this orders by operation ID rather than age."""
+        _text(scope, "scope")
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        with self._transaction(scope) as db:
+            rows = db.execute(
+                "SELECT * FROM operations WHERE scope=? AND state IN ('in_flight', "
+                "'indeterminate') ORDER BY operation_id LIMIT ?",
+                (scope, limit),
+            ).fetchall()
+        return [self._operation(row) for row in rows]
 
     def claim(self, scope: str, operation_id: str, effect: str, request: dict[str, Any]) -> Claim:
         """Atomically bind and durably acquire one attempt, or return its status."""

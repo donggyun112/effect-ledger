@@ -31,6 +31,10 @@ class EffectExecutor:
     def get(self, operation_id: str) -> Operation | None:
         return self.store.get(self.scope, _text(operation_id, "operation_id"))
 
+    def unresolved(self, *, limit: int = 50) -> list[Operation]:
+        """List operations in this scope awaiting a decision. Reading grants nothing."""
+        return self.store.unresolved(self.scope, limit=limit)
+
     def bind(self, effect: str, handler: Callable[[Operation], Any]) -> Callable:
         """Bind an explicit effect; returned callable accepts (operation_id, request)."""
         _text(effect, "effect")

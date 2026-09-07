@@ -160,6 +160,30 @@ operational path. Decide only **after stopping existing workers and checking the
 state of provider requests already sent.** `workers_stopped=True` is the
 caller's assertion, not a mechanism that blocks a remote effect.
 
+The `effect-ledger` console does the reading and the recording. It does not do
+the checking — no command here talks to your provider.
+
+```console
+$ effect-ledger --db effects.sqlite --scope account-1 list
+STATE          VER ATT  EFFECT                   OPERATION ID
+indeterminate    2   1  payment.charge:v1        charge-1
+
+$ effect-ledger --db effects.sqlite --scope account-1 show charge-1
+{ "request": { "amount": 4200, "card": "tok_x" }, "state": "indeterminate", "version": 2, ... }
+
+# Now go read the provider's own records for that request. Then, and only then:
+$ effect-ledger --db effects.sqlite --scope account-1 resolve charge-1 \
+    --complete --result-json '{"charge_id": "ch_77"}' \
+    --expected-version 2 --decision-id operator-charge-1 \
+    --reason "Stripe shows ch_77; workers drained" --workers-stopped
+```
+
+`--expected-version` is typed in on purpose. Filling it in from the store would
+make the decision refer to the row as it is at that instant, which is not what
+the operator looked at; passing it by hand is what makes a decision refuse to
+land on a state that changed while you were investigating. `--db` also takes a
+`postgresql://` DSN.
+
 ```python
 from effect_ledger import EffectExecutor
 

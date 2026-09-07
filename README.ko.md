@@ -138,6 +138,28 @@ scope와 provider key는 툴 인자로 받지 않는다. 제공자별 입력 검
 **기존 작업자를 중지하고 이미 전송된 제공자 요청의 상태까지 확인한 뒤** 판정한다.
 `workers_stopped=True`는 호출자의 확인이며 원격 효과를 차단하는 장치가 아니다.
 
+`effect-ledger` 콘솔은 읽기와 기록을 담당한다. 확인은 담당하지 않는다. 여기 어떤 명령도
+제공자에게 말을 걸지 않는다.
+
+```console
+$ effect-ledger --db effects.sqlite --scope account-1 list
+STATE          VER ATT  EFFECT                   OPERATION ID
+indeterminate    2   1  payment.charge:v1        charge-1
+
+$ effect-ledger --db effects.sqlite --scope account-1 show charge-1
+{ "request": { "amount": 4200, "card": "tok_x" }, "state": "indeterminate", "version": 2, ... }
+
+# 이제 그 요청에 대한 제공자 쪽 기록을 직접 확인한다. 그다음에만:
+$ effect-ledger --db effects.sqlite --scope account-1 resolve charge-1 \
+    --complete --result-json '{"charge_id": "ch_77"}' \
+    --expected-version 2 --decision-id operator-charge-1 \
+    --reason "Stripe shows ch_77; workers drained" --workers-stopped
+```
+
+`--expected-version`을 손으로 넣게 한 것은 의도다. 저장소에서 채워 넣으면 그 판정은 바로 그
+순간의 행을 가리키게 되는데, 그건 운영자가 본 것이 아니다. 손으로 넘겨야 조사하는 동안 바뀐
+상태 위에 판정이 내려앉는 것을 거부할 수 있다. `--db`는 `postgresql://` DSN도 받는다.
+
 ```python
 from effect_ledger import EffectExecutor
 

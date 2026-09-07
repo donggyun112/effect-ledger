@@ -39,6 +39,31 @@ class OperationsContract:
             workers_stopped=True, **kwargs,
         )
 
+    def test_unresolved_lists_only_this_scope_and_grants_nothing(self):
+        def lost(call):
+            raise TimeoutError("Remote accepted but the response was lost")
+        self.execute(handler=lost)
+        self.executor.execute("done-1", "send:v1", {"text": "done"}, self.effect)
+        other = self.make_executor(scope="account-b")
+        other.execute("other-1", "send:v1", {"text": "elsewhere"}, lost)
+
+        listed = self.executor.unresolved()
+        self.assertEqual([r.operation_id for r in listed], ["send-1"])
+        self.assertEqual(listed[0].state, "indeterminate")
+        self.assertEqual(listed[0].request, {"text": "hello"})
+        self.assertEqual([r.operation_id for r in other.unresolved()], ["other-1"])
+
+        # Listing is a read. It must not move the operation or permit a retry.
+        self.assertEqual(self.executor.get("send-1").version, listed[0].version)
+        self.assertEqual(self.execute().state, "indeterminate")
+        self.assertEqual(len(self.calls), 1)
+
+        self.resolve(listed[0], action="complete", result={"remote_id": "message-1"})
+        self.assertEqual(self.executor.unresolved(), [])
+        for bad in (0, -1, "5"):
+            with self.subTest(limit=bad), self.assertRaises(ValueError):
+                self.executor.unresolved(limit=bad)
+
     def test_restart_replays_full_result_and_preserves_provider_key(self):
         first = self.execute()
         self.executor = self.make_executor()
