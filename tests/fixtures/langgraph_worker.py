@@ -88,7 +88,7 @@ if transport == 'boundary':
             return message
     effect = send_message
     middleware = [AfterCommit(), ExecutionBoundary(executor,
-        effects={'send_message': 'message.send:v1'}, workflow_id='crash-agent:v1')]
+        tools={'send_message': 'message.send:v1'}, workflow_id='crash-agent:v1')]
 with closing(sqlite3.connect(root / "checkpoints.sqlite", check_same_thread=False)) as db:
     runner = DurableAgentRunner(create_agent(Model(), [effect], middleware=middleware, checkpointer=SqliteSaver(db)))
     config = {"configurable": {"thread_id": "crash-thread"}}

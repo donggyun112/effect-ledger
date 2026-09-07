@@ -18,13 +18,13 @@ from .operations import EffectExecutor, Operation, OperationConflict, _json, _te
 _CURRENT: ContextVar[Operation | None] = ContextVar('effect_operation', default=None)
 
 
-class _ToolPolicy(Enum):
+class ToolPolicy(Enum):
     READ_ONLY = 'read_only'
     CONTROL = 'control'
 
 
-READ_ONLY = _ToolPolicy.READ_ONLY
-CONTROL = _ToolPolicy.CONTROL
+READ_ONLY = ToolPolicy.READ_ONLY
+CONTROL = ToolPolicy.CONTROL
 
 
 class UnsupportedToolResult(ValueError):
@@ -47,18 +47,19 @@ def current_operation() -> Operation:
 
 
 class ExecutionBoundary(AgentMiddleware):
-    """Protect declared single-effect tools and commit results before outer processing.
+    """Protect every tool by default and commit results before outer processing.
 
-    Requires durable checkpoints and serialized threads. Do not combine with durable_tool on the same effect."""
+    READ_ONLY and CONTROL tools bypass the ledger. Requires durable checkpoints and
+    serialized threads. Do not combine with durable_tool on the same effect."""
 
     def __init__(self, executor: EffectExecutor, *,
-                 tools: Mapping[str, str | _ToolPolicy] | None = None,
+                 tools: Mapping[str, str | ToolPolicy] | None = None,
                  workflow_id: str | None = None,
                  operation_id: Callable[[ToolRuntime], str] | None = None) -> None:
         if operation_id is None:
             _text(workflow_id, 'workflow_id')
         self.executor = executor
-        self.tool_policies: dict[str, str | _ToolPolicy] = {}
+        self.tool_policies: dict[str, str | ToolPolicy] = {}
         for name, policy in (tools or {}).items():
             name = _text(name, 'tool name')
             if isinstance(policy, str):
@@ -69,7 +70,7 @@ class ExecutionBoundary(AgentMiddleware):
         self.workflow_id = workflow_id
         self.operation_id = operation_id
 
-    def _policy(self, name: str) -> str | _ToolPolicy:
+    def _policy(self, name: str) -> str | ToolPolicy:
         return self.tool_policies.get(name, f'langchain.tool:{name}')
 
     @staticmethod

@@ -1,14 +1,15 @@
 # 기존 LangChain 툴에 실행 경계 붙이기
 
 Semora의 네이티브 실행 경계와 결과를 먼저 저장하는 설계를 참고했다. LangChain의 Agent,
-BaseTool/StructuredTool, 모델 루프, LangGraph 체크포인터를 그대로 사용한다. 보호할 툴을
-명시하고 미들웨어를 연결한다. 툴 인자를 `request={...}`로 다시 작성할 필요가 없다.
+BaseTool/StructuredTool, 모델 루프, LangGraph 체크포인터를 그대로 사용한다. 미들웨어를
+연결하면 등록된 모든 툴이 기본적으로 보호된다. 툴 인자를 `request={...}`로 다시 작성할
+필요가 없다.
 
 ```python
 from langchain.agents import create_agent
 from langchain.tools import tool
 from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import ExecutionBoundary, current_operation
+from langgraph_effect_ledger.langchain import CONTROL, READ_ONLY, ExecutionBoundary, current_operation
 from langgraph_effect_ledger.langgraph import DurableAgentRunner
 
 @tool
@@ -21,7 +22,6 @@ def send_confirmation(order_id: str, text: str) -> dict:
 executor = EffectExecutor("effects.sqlite", scope="account-1")
 boundary = ExecutionBoundary(
     executor,
-    effects={"send_confirmation": "confirmation.send:v1"},
     workflow_id="orders:v1",
 )
 agent = create_agent(
@@ -37,6 +37,38 @@ outcome = runner.start({"messages": [("user", "Send the confirmation")]}, config
 `model`, `saver`, `provider`는 앱의 모델·내구 체크포인터·제공자 연결이다. `current_operation()`은
 선택 기능이다. 기존 툴은 그대로 둘 수 있고, 제공자 키가 필요한 툴만 이 접근자를 사용한다.
 접근자는 보호된 실행 안에서만 유효하며 모델 스키마에 인자를 추가하지 않는다.
+
+## 툴 정책
+
+`tools`는 보호 대상을 고르는 allowlist가 아니다. 설정에 없는 툴도 `langchain.tool:<이름>`
+효과로 원장을 통과한다. 확실한 읽기 툴, 외부 효과가 없는 제어 툴, 배포 사이에 유지할 효과
+이름만 지정한다.
+
+```python
+boundary = ExecutionBoundary(
+    executor,
+    workflow_id="orders:v1",
+    tools={
+        "search_orders": READ_ONLY,
+        "transfer_to_human": CONTROL,
+        "send_confirmation": "confirmation.send:v1",
+    },
+)
+```
+
+`READ_ONLY`와 `CONTROL`은 원장 쓰기 없이 기존 handler를 호출한다. `READ_ONLY`는 성능 옵션이
+아니라 외부 변경이 없다는 정확성 선언이다. 쓰기 가능성이 있는 툴을 SQLite 경합 때문에
+`READ_ONLY`로 지정하면 체크포인트 재실행에서 효과가 중복될 수 있다.
+
+`Command`를 반환하는 handoff·상태 제어 툴은 `CONTROL`로 지정한다. 이를 빠뜨리거나 durable
+툴이 JSON이 아닌 artifact를 반환하면 실제 호출 뒤 `indeterminate`로 멈춘다. 반환 타입만으로
+안전하게 판별할 수 없으므로 **배포 전에 등록된 모든 툴의 실제 반환 경로를 한 번씩 호출하는
+통합 테스트가 필요하다.** 외부 효과가 있는 툴의 artifact는 JSON으로 바꿔야 하며, 오류를
+피하려고 그 툴을 `CONTROL`로 지정하면 안 된다.
+
+기본 효과 이름은 툴 이름을 포함한다. 보호된 툴을 rename하면 기존 실행을 재개할 때 효과
+바인딩이 충돌한다. rename 뒤에도 이전 문자열을 `tools`에 명시하거나 `workflow_id`를 올려 새
+실행 ID 공간을 사용한다. 자동 이름에는 자동으로 올라가지 않는 `:v1` 접미사를 붙이지 않는다.
 
 ## 경계와 조합 순서
 
@@ -96,11 +128,11 @@ outcome = runner.resume(config)
 
 - 기존 동기·비동기 툴을 지원한다. 비동기 그래프에는 내구 AsyncSqliteSaver 등의 체크포인터와
   `runner.astart/aresume`을 쓴다. 저장소 I/O는 워커 스레드로 분리한다.
-- `effects`에 이름을 등록한 툴만 보호한다. 읽기 툴은 등록하지 않아도 된다. 이름 오타나
-  등록 누락은 자동 감지하지 않으므로 배포 시 툴 목록과 선언을 함께 검토한다.
-- 등록 툴은 단일 외부 효과, 고정된 의미, JSON으로 표현 가능한 결과라는 계약이 필요하다.
-  `Command`를 반환하는 상태 변경 툴·복수 효과·내부 승인 interrupt는 지원하지 않는다.
-  실행 뒤 지원하지 않는 결과가 나오면 미해결로 보류한다.
+- 등록된 모든 툴을 기본적으로 보호한다. `READ_ONLY`와 `CONTROL`로 선언한 툴만 원장을
+  우회한다.
+- durable 툴은 단일 외부 효과, 고정된 의미, JSON으로 표현 가능한 결과라는 계약이 필요하다.
+  복수 효과·내부 승인 interrupt는 지원하지 않는다. 실행 뒤 지원하지 않는 결과가 나오면
+  미해결로 보류한다.
 - 제공자 계정은 executor.scope에 고정한다. 효과에 영향을 주는 값은 원장에 결합되는 툴 인자에
   넣고, 구현 의미가 바뀌면 effect 버전을 바꾼다. runtime.context나 외부 mutable 상태에서
   수신자·금액 등을 가져오면 저장된 인자만으로 재실행 의미를 고정할 수 없다.

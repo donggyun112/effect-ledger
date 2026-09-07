@@ -87,13 +87,13 @@ actionable rename diagnostic.
 - Modify: `docs/langchain-boundary.md`
 - Modify: `examples/durable_agent.py`
 - Modify: `tests/fixtures/langgraph_worker.py`
-- Modify: tests containing `ExecutionBoundary(..., effects=...)`
+- Modify: tests containing the legacy explicit allowlist constructor
 
 **Interfaces:**
 - Consumes: the final `tools` API and exported sentinels.
 - Produces: examples with default-on behavior and explicit deployment-test obligations.
 
-- [ ] Replace every `effects=` call with default-on or `tools=` configuration.
+- [ ] Replace every legacy allowlist call with default-on or `tools` configuration.
 - [ ] Document control/non-JSON integration testing, rename migration, and the danger of using
   `READ_ONLY` to avoid database contention.
 - [ ] Keep remote `durable_tool` documentation as an advanced MCP transport path.
@@ -108,8 +108,7 @@ actionable rename diagnostic.
 - Consumes: Tasks 1-4.
 - Produces: a release-ready source tree with no stale public examples.
 
-- [ ] Run `rg -n "effects=" README.md docs examples src tests` and confirm no obsolete public
-  constructor calls remain.
+- [ ] Search public examples and tests and confirm no obsolete constructor calls remain.
 - [ ] Run the full Python 3.13 suite, including PostgreSQL when the test DSN is available.
 - [ ] Run the Python 3.10 compatibility suite.
 - [ ] Run `uv build` and `git diff --check`.

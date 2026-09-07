@@ -308,7 +308,7 @@ class AsyncBoundaryTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
                 calls.append(current_operation())
                 raise TimeoutError()
-            boundary = ExecutionBoundary(executor, tools={'send_message': 'send:v1'}, workflow_id='async')
+            boundary = ExecutionBoundary(executor, workflow_id='async')
             async with AsyncSqliteSaver.from_conn_string(str(Path(directory) / 'graph.db')) as saver:
                 model = NativeModel()
                 runner = DurableAgentRunner(create_agent(model, [send_message],
@@ -318,6 +318,7 @@ class AsyncBoundaryTest(unittest.IsolatedAsyncioTestCase):
                 pending = pause['__interrupt__'][0].value
                 await runner.aresume(config)
                 self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0].effect, 'langchain.tool:send_message')
                 self.assertEqual(len(model.calls), 1)
                 executor.resolve(pending['operation_id'], expected_version=pending['version'],
                     decision_id='confirmed', action='complete', workers_stopped=True,
