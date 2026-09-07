@@ -127,12 +127,14 @@ class ExecutionBoundary(AgentMiddleware):
             except Exception:
                 existing = None
             if existing is not None and existing.effect != effect:
-                replacement = ("bump workflow_id" if self.operation_id is None else
-                               "return a new operation_id")
+                identity = "workflow_id" if self.operation_id is None else "operation_id"
                 status['configuration_hint'] = (
                     f"Operation is bound to {existing.effect!r}, but {tool_name!r} resolved "
                     f"to {effect!r}. Configure tools={{{tool_name!r}: "
-                    f"{existing.effect!r}}} to preserve the effect name, or {replacement}.")
+                    f"{existing.effect!r}}} to preserve the effect name and replay the "
+                    f"recorded outcome. A new {identity} dispatches this effect again even "
+                    f"though the bound operation is already {existing.state}; choose it only "
+                    f"to perform a deliberately new action.")
         return status
 
     def wrap_tool_call(self, request: ToolCallRequest, handler: Callable) -> Any:

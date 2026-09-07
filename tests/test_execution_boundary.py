@@ -195,7 +195,7 @@ class BoundaryTest(unittest.TestCase):
     def test_renamed_tool_explains_how_to_preserve_or_replace_its_identity(self):
         calls = []
 
-        def run(name, *, tools=None, checkpoint):
+        def run(name, *, tools=None, checkpoint, workflow_id='rename-workflow'):
             @tool(name)
             def named_tool(text: str):
                 """Perform one external effect."""
@@ -206,7 +206,7 @@ class BoundaryTest(unittest.TestCase):
             self.addCleanup(connection.close)
             graph = create_agent(NamedNativeModel(requested_tool=name), [named_tool],
                 middleware=[ExecutionBoundary(self.executor, tools=tools,
-                    workflow_id='rename-workflow')],
+                    workflow_id=workflow_id)],
                 checkpointer=SqliteSaver(connection))
             return DurableAgentRunner(graph).start(
                 {'messages': [('user', 'send')]},
@@ -215,15 +215,46 @@ class BoundaryTest(unittest.TestCase):
         run('send_message', checkpoint='before-rename')
         paused = run('send_msg', checkpoint='after-rename')
         failure = paused['__interrupt__'][0].value
+        hint = failure['configuration_hint']
         self.assertEqual(failure['error'], 'OperationConflict')
-        self.assertIn('langchain.tool:send_message', failure['configuration_hint'])
-        self.assertIn('langchain.tool:send_msg', failure['configuration_hint'])
-        self.assertIn('workflow_id', failure['configuration_hint'])
+        self.assertIn('langchain.tool:send_message', hint)
+        self.assertIn('langchain.tool:send_msg', hint)
+        # A new identity space is not a recovery: it redispatches a finished effect.
+        self.assertIn('workflow_id', hint)
+        self.assertIn('again', hint)
+        self.assertIn('completed', hint)
 
         replayed = run('send_msg', checkpoint='explicit-stable-name',
                        tools={'send_msg': 'langchain.tool:send_message'})
         self.assertFalse(replayed.get('__interrupt__'))
         self.assertEqual(calls, ['send_message'])
+
+    def test_new_identity_space_redispatches_a_completed_effect(self):
+        calls = []
+
+        def run(name, *, checkpoint, workflow_id):
+            @tool(name)
+            def named_tool(text: str):
+                """Perform one irreversible external effect."""
+                calls.append(name)
+                return 'Sent'
+
+            connection = sqlite3.connect(self.root / f'{checkpoint}.db', check_same_thread=False)
+            self.addCleanup(connection.close)
+            graph = create_agent(NamedNativeModel(requested_tool=name), [named_tool],
+                middleware=[ExecutionBoundary(self.executor, workflow_id=workflow_id)],
+                checkpointer=SqliteSaver(connection))
+            return DurableAgentRunner(graph).start(
+                {'messages': [('user', 'send')]},
+                {'configurable': {'thread_id': 'redispatch-thread'}})
+
+        run('send_message', checkpoint='v1-original', workflow_id='redispatch:v1')
+        run('send_msg', checkpoint='v1-conflict', workflow_id='redispatch:v1')
+        self.assertEqual(calls, ['send_message'])
+        # Bumping workflow_id builds a different operation ID, so the ledger cannot
+        # recognize the finished action and the provider is called a second time.
+        run('send_msg', checkpoint='v2-bumped', workflow_id='redispatch:v2')
+        self.assertEqual(calls, ['send_message', 'send_msg'])
 
     def test_error_tool_message_is_not_a_completed_effect(self):
         runner, _ = self.build(tool_error=True)
