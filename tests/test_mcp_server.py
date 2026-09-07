@@ -2,11 +2,10 @@
 
 import asyncio
 import sqlite3
-from contextlib import closing
 import sys
 import tempfile
 import unittest
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters

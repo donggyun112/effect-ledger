@@ -1,12 +1,15 @@
 """Framework-free execution authority, composed with an atomic durable store."""
 from __future__ import annotations
-import json
+
 import asyncio
+import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
-from .models import Operation, OperationConflict, _MISSING, _json, _text
-from .store import OperationStore
+from typing import Any
+
+from .models import _MISSING, Operation, OperationConflict, _json, _text
 from .recovery import RecoveryPolicy
+from .store import OperationStore
 
 
 class EffectExecutor:

@@ -1,9 +1,11 @@
 """Shared SQL state transitions; backend transactions provide serialization."""
 from __future__ import annotations
+
 import json
 from typing import Any
 from uuid import uuid4
-from .models import Operation, OperationConflict, _MISSING, _json, _text
+
+from .models import _MISSING, Operation, OperationConflict, _json, _text
 from .store import Claim
 
 

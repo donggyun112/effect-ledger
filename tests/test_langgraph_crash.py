@@ -6,16 +6,16 @@ import signal
 import sqlite3
 import subprocess
 import sys
-import threading
 import time
 import unittest
 from contextlib import closing
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph_effect_ledger.operations import EffectExecutor
-from langgraph_effect_ledger.langchain import ExecutionBoundary
 from test_operation_crash import ProviderFixture
+
+from langgraph_effect_ledger.langchain import ExecutionBoundary
+from langgraph_effect_ledger.operations import EffectExecutor
 
 
 @unittest.skipUnless(os.name == "posix", "SIGKILL process-group failure injection requires POSIX")

@@ -1,10 +1,10 @@
 """LangChain effect boundary. Install last among tool middleware; see docs/langchain-boundary.md."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
@@ -157,7 +157,8 @@ class ExecutionBoundary(AgentMiddleware):
         try:
             status = self.executor.execute(identity, effect, request.tool_call['args'], execute).response()
         except _ControlFlow as flow:
-            raise flow.signal
+            # _ControlFlow only carried this signal out; it did not cause it.
+            raise flow.signal from None
         except Exception as exc:
             status = self._failure(identity, effect, request.tool_call['name'], exc)
         return self._reply(status, request, effect)
@@ -183,7 +184,8 @@ class ExecutionBoundary(AgentMiddleware):
             status = (await self.executor.aexecute(
                 identity, effect, request.tool_call['args'], execute)).response()
         except _ControlFlow as flow:
-            raise flow.signal
+            # _ControlFlow only carried this signal out; it did not cause it.
+            raise flow.signal from None
         except Exception as exc:
             status = self._failure(identity, effect, request.tool_call['name'], exc)
         return self._reply(status, request, effect)

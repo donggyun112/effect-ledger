@@ -7,6 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # ruff is pinned in the dev dependency group, so CI and a contributor's
+      # `uv run ruff check` resolve to the same version.
+      - run: uv sync --all-extras
+
+      - run: uv run ruff check --output-format=github
+
   test:
     name: tests (python ${{ matrix.python }})
     runs-on: ubuntu-latest

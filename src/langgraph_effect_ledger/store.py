@@ -5,7 +5,8 @@ resolve records the decision and transition atomically; replay cannot regrant.
 Transactions must not span handlers or recovery policies."""
 from dataclasses import dataclass
 from typing import Any, Protocol
-from .models import Operation, _MISSING
+
+from .models import _MISSING, Operation
 
 
 @dataclass(frozen=True)

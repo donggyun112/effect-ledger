@@ -31,6 +31,21 @@ mcp = [
     "mcp>=1.28,<2",
 ]
 
+[dependency-groups]
+dev = ["ruff==0.16.6"]
+
+[tool.ruff]
+# probes/ is the design record rather than maintained code. The README promises
+# each file runs as-is, so reformatting them buys nothing and rewrites history.
+extend-exclude = ["probes"]
+
+[tool.ruff.lint]
+# Deliberately narrow. F and E9 catch real defects; I, UP, B and RUF100 keep the
+# source consistent. BLE001 is left out on purpose: every blind except in src is
+# a fail-closed boundary that turns an unknown outcome into an unresolved
+# operation, which is the contract this library exists to enforce.
+select = ["F", "E9", "I", "UP", "B", "RUF100"]
+
 [build-system]
 requires = ["uv_build>=0.12.6,<0.13.0"]
 build-backend = "uv_build"

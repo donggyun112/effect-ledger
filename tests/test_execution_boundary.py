@@ -1,6 +1,6 @@
 """Native LangChain tools behind one explicit effect boundary."""
-import sqlite3
 import asyncio
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,15 +8,21 @@ from uuid import uuid4
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
-from langchain_core.messages import AIMessage, ToolMessage
-from langchain_core.tools import tool, ToolException
 from langchain.tools import ToolRuntime
-from langgraph.types import Command, interrupt
+from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import ToolException, tool
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph_effect_ledger import EffectExecutor
-from langgraph_effect_ledger.langchain import CONTROL, READ_ONLY, ExecutionBoundary, current_operation
-from langgraph_effect_ledger.langgraph import DurableAgentRunner
+from langgraph.types import Command, interrupt
 from test_langgraph_recovery import ScriptedModel
+
+from langgraph_effect_ledger import EffectExecutor
+from langgraph_effect_ledger.langchain import (
+    CONTROL,
+    READ_ONLY,
+    ExecutionBoundary,
+    current_operation,
+)
+from langgraph_effect_ledger.langgraph import DurableAgentRunner
 
 
 class NativeModel(ScriptedModel):

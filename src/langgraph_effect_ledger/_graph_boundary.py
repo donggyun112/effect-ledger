@@ -1,10 +1,13 @@
 """Shared identity and suspension rules for LangGraph effect adapters."""
 import hashlib
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
+
 from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 from langgraph.types import interrupt
+
 from .operations import _json, _text
 
 

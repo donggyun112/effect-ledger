@@ -1,10 +1,13 @@
 """Optional PostgreSQL backend for hosts sharing one authoritative database."""
 from __future__ import annotations
+
 import hashlib
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
+
 import psycopg
 from psycopg.rows import dict_row
+
 from ._sql import SQLStore
 from .models import _text
 

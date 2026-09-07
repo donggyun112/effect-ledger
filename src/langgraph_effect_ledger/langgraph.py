@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from langchain.tools import ToolRuntime
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from .operations import _json, _text
 from ._graph_boundary import checked_identity, pause
+from .operations import _json, _text
 
 
 def durable_tool(
