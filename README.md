@@ -19,19 +19,25 @@ second call finds it.** An attempt whose outcome was never recorded stops as
 It does not make your provider idempotent and it does not give you exactly-once.
 It records what may already have gone out, and refuses to guess the rest.
 
-![A graph of model, ledger and unresolved. The ledger commits an in_flight claim
-while nothing has been sent yet; the confirmation goes out and the reply is
-lost, so the run stops on unresolved as indeterminate. Resuming walks back
-through the ledger and is refused there with the attempt count unchanged. An
+![A graph of model, ledger and unresolved. The ledger is drawn as a box holding
+three steps: commit the claim, send_confirmation, record the outcome. The claim
+is committed while nothing has been sent; the confirmation goes out and its
+reply is lost, so the run stops on unresolved as indeterminate. On resume the
+send step is greyed out and never runs, and the attempt count is unchanged. An
 operator records the real outcome and it is replayed. Two counters, messages
 sent and provider attempts, stay at
-one](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+one](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/recovery-walk.gif)
 
-The ledger commits the claim **before** the effect leaves, so the run above stops
-on `unresolved` rather than sending a second confirmation. Resuming without a
-decision walks `unresolved → ledger → unresolved`: the refusal is the ledger's,
-and the attempt count does not move. Only an operator who confirmed the real
-outcome settles it, and that result is replayed. Both counters stay at one.
+The effect runs **inside** the ledger, never beside it. One
+`EffectExecutor.execute()` call commits the claim, calls the tool, and records
+the outcome, which is why the claim exists before anything has been sent. The
+reply is lost, so the run stops on `unresolved` rather than sending a second
+confirmation.
+
+Resuming without a decision re-enters the boundary and the send step is simply
+not reached: the refusal is the ledger's, and the attempt count does not move.
+Only an operator who confirmed the real outcome settles it, and that result is
+replayed. Both counters stay at one.
 
 Every value on that screen was captured from a real run of the composed graph in
 [examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py),

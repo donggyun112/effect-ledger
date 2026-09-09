@@ -18,16 +18,20 @@
 제공자 멱등성을 만들어내지 않고 exactly-once도 보장하지 않는다. 이미 나갔을지 모르는 것을
 기록하고 나머지는 추측하지 않는다.
 
-![model, ledger, unresolved 세 노드의 그래프. 아직 아무것도 보내지 않은 상태에서 원장이
-in_flight 실행권을 잡고, 확인 메시지가 나간 뒤 응답을 잃어 indeterminate로 unresolved에서
-멈춘다. 재개해도 원장을 거쳐 거부되고 attempt는 그대로다. 운영자가 실제 결과를 기록하자
-재생된다. 보낸 메시지와 제공자 시도 두 카운터가 계속
-1이다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+![model, ledger, unresolved 세 노드의 그래프. ledger는 실행권 커밋, send_confirmation,
+결과 기록 세 단계를 담은 상자로 그려진다. 아직 아무것도 보내지 않은 상태에서 실행권이 커밋되고,
+확인 메시지가 나간 뒤 응답을 잃어 indeterminate로 unresolved에서 멈춘다. 재개하면 발송 단계가
+흐려진 채 실행되지 않고 attempt도 그대로다. 운영자가 실제 결과를 기록하자 재생된다. 보낸
+메시지와 제공자 시도 두 카운터가 계속
+1이다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/recovery-walk.gif)
 
-원장은 효과가 나가기 **전에** 실행권을 커밋한다. 그래서 위 실행은 두 번째 확인 메시지를 보내는
-대신 `unresolved`에서 멈춘다. 판정 없이 재개하면 `unresolved → ledger → unresolved`를 돌 뿐이다.
-거부하는 주체는 원장이고 attempt는 움직이지 않는다. 실제 결과를 확인한 운영자만 이것을
-종결시킬 수 있으며 그 결과는 재생된다. 두 카운터는 끝까지 1이다.
+효과는 원장 **안에서** 실행된다. 옆이 아니다. `EffectExecutor.execute()` 한 번이 실행권을
+커밋하고 툴을 호출하고 결과를 기록한다. 그래서 아무것도 보내지 않은 시점에 이미 실행권이
+존재한다. 응답을 잃으면 두 번째 확인 메시지를 보내는 대신 `unresolved`에서 멈춘다.
+
+판정 없이 재개하면 경계에 다시 들어가지만 발송 단계에는 도달하지 못한다. 거부하는 주체는
+원장이고 attempt는 움직이지 않는다. 실제 결과를 확인한 운영자만 이것을 종결시킬 수 있으며
+그 결과는 재생된다. 두 카운터는 끝까지 1이다.
 
 화면의 모든 값은
 [examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)의

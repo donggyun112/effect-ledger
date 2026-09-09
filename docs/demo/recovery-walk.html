@@ -48,6 +48,20 @@
   .node.settled rect { stroke: var(--ok); fill: var(--ok-dim); }
   .node.settled text { fill: var(--ok); }
   .node.dim { opacity: 0.4; }
+
+  /* the boundary is a container, and the effect is drawn inside it */
+  .box rect { fill: rgba(22, 29, 38, 0.6); stroke: var(--line); stroke-width: 1.2; rx: 8; }
+  .box .title { fill: var(--muted); font-family: var(--mono); font-size: 13px; }
+  .box.live rect { stroke: var(--hold); } .box.live .title { fill: var(--hold); }
+  .box.settled rect { stroke: var(--ok); } .box.settled .title { fill: var(--ok); }
+  .row rect { fill: var(--panel); stroke: var(--line); stroke-width: 1; rx: 5; }
+  .row text { fill: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+  .row.effect rect { stroke-dasharray: none; stroke: #35414f; }
+  .row.effect text { fill: var(--text); }
+  .row.lit rect { stroke: var(--hold); fill: var(--hold-dim); } .row.lit text { fill: var(--hold); }
+  .row.ran rect { stroke: var(--ok); } .row.ran text { fill: var(--ok); }
+  .row.skip { opacity: 0.32; }
+  .row .note { font-size: 11px; fill: var(--muted); font-family: var(--sans); }
   .statepill rect { fill: var(--panel); stroke: var(--hold); rx: 12; }
   .statepill text { fill: var(--hold); font-family: var(--mono); font-size: 12.5px; }
   .statepill.settled rect { stroke: var(--ok); } .statepill.settled text { fill: var(--ok); }
@@ -85,7 +99,7 @@
 
 <div class="stage">
   <header>
-    <h1>effect-ledger recovery<span>the ledger is a node, and its verdict is an edge</span></h1>
+    <h1>effect-ledger recovery<span>the effect runs inside the ledger, never beside it</span></h1>
     <div class="legend"><span class="h"><i></i>unresolved</span><span class="o"><i></i>settled</span></div>
   </header>
 
@@ -113,34 +127,41 @@
   // Captured from a real run of examples/execution_boundary_agent.py:ledger_graph.
   // The in_flight rows were sampled from the store while the attempt was running,
   // which is why the claim is visible before the mailbox row exists.
+  // rows: claim / effect / record, the three things EffectExecutor.execute does
+  // in one call. lit = happening, ran = done, skip = deliberately not called.
   const STEPS = [
     { cap: "A confirmation is about to go out. <em class='ok'>Nothing is claimed and nothing is sent.</em>",
-      call: null, state: null, attempt: null, sent: 0, live: [], hot: [] },
-    { cap: "The ledger commits the claim <em>before</em> the effect leaves.",
+      state: null, attempt: null, sent: 0, live: [], hot: [], rows: {} },
+    { cap: "Inside the boundary, the claim is committed <em>before</em> the effect is called.",
       call: "EffectExecutor.execute(operation_id, effect, request, send)",
       ret: "state <b>in_flight</b> · attempt 1 · next_action wait",
-      state: "in_flight", attempt: 1, sent: 0, live: ["ledger"], hot: ["model-ledger"] },
-    { cap: "The confirmation is out. The outcome is <em>not known</em>.",
-      call: null, ret: null, state: "in_flight", attempt: 1, sent: 1,
-      live: ["ledger"], hot: [] },
+      state: "in_flight", attempt: 1, sent: 0, box: "live", hot: ["model-ledger"],
+      rows: { claim: "lit" } },
+    { cap: "Only now is the effect called. The outcome is <em>not known</em> yet.",
+      state: "in_flight", attempt: 1, sent: 1, box: "live", hot: [],
+      rows: { claim: "ran", effect: "lit" } },
     { cap: "The reply was lost, so the run stops on <em>unresolved</em>.",
       call: 'graph.invoke({"messages": [("user", "Confirm order-123")]})',
       ret: "state <b>indeterminate</b> · attempt 1 · next_action reconcile · stops on unresolved",
-      state: "indeterminate", attempt: 1, sent: 1, live: ["unresolved"], hot: ["ledger-unresolved"] },
-    { cap: "Resume without a decision: back through the ledger, and <em>refused</em> there.",
+      state: "indeterminate", attempt: 1, sent: 1, box: "live", live: ["unresolved"],
+      hot: ["ledger-unresolved"], rows: { claim: "ran", effect: "ran", record: "lit" } },
+    { cap: "Resume with no decision: the boundary is re-entered and <em>the effect is never called</em>.",
       call: 'graph.invoke(Command(resume="operator looked"))',
       ret: "state <b>indeterminate</b> · attempt <b>1</b> · unchanged · stops on unresolved",
-      state: "indeterminate", attempt: 1, sent: 1, live: ["unresolved"],
-      hot: ["unresolved-ledger", "ledger-unresolved"] },
+      state: "indeterminate", attempt: 1, sent: 1, box: "live", live: ["unresolved"],
+      hot: ["unresolved-ledger", "ledger-unresolved"],
+      rows: { claim: "lit", effect: "skip", record: "" } },
     { cap: "An operator checked the mailbox row, then recorded the outcome.",
       call: "effect-ledger resolve &lt;id&gt; --complete --expected-version 2 --workers-stopped",
       ret: "state <b class='ok'>completed</b> · version 3 · next_action use_result",
-      state: "completed", attempt: 1, sent: 1, settled: ["ledger"], hot: [] },
-    { cap: "Replayed from the ledger, <em class='ok'>never sent again</em>.",
+      state: "completed", attempt: 1, sent: 1, box: "settled", hot: [],
+      rows: { claim: "", effect: "skip", record: "ran" } },
+    { cap: "The stored result is replayed, <em class='ok'>never sent again</em>.",
       call: 'graph.invoke(Command(resume="recovered"))',
       ret: '"Confirmation sent: order-123 confirmed, mailbox row 1"',
-      state: "completed", attempt: 1, sent: 1, settled: ["ledger", "model", "end"],
-      dim: ["unresolved"], hot: [], done: ["ledger-model", "model-end"] },
+      state: "completed", attempt: 1, sent: 1, box: "settled", settled: ["model", "end"],
+      dim: ["unresolved"], hot: [], done: ["ledger-model", "model-end"],
+      rows: { claim: "", effect: "skip", record: "ran" } },
   ];
 
   const NS = "http://www.w3.org/2000/svg";
@@ -151,9 +172,8 @@
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const T = (ms) => reduced ? 0 : ms;
 
-  const BOX = { start: [200, 8, 120, 30, 1], model: [200, 78, 120, 34, 0],
-                ledger: [60, 190, 130, 34, 0], end: [370, 190, 120, 30, 1],
-                unresolved: [60, 310, 130, 34, 0] };
+  const BOX = { start: [205, 4, 120, 28, 1], model: [205, 62, 120, 32, 0],
+                end: [390, 168, 120, 28, 1], unresolved: [26, 306, 232, 32, 0] };
   const nodes = {};
   for (const [id, [x, y, w, h, term]] of Object.entries(BOX)) {
     const g = el("g", {}, "node" + (term ? " term" : ""));
@@ -163,19 +183,41 @@
     t.textContent = label; g.appendChild(t);
     N.appendChild(g); nodes[id] = g;
   }
+
+  // the ledger node, drawn as the container it is
+  const LX = 26, LY = 132, LW = 232, LH = 128;
+  const box = el("g", {}, "box");
+  box.appendChild(el("rect", { x: LX, y: LY, width: LW, height: LH }));
+  const title = el("text", { x: LX + 14, y: LY + 21 }, "title"); title.textContent = "ledger";
+  box.appendChild(title); N.appendChild(box);
+
+  const ROWS = [["claim", "commit the claim"], ["effect", "send_confirmation"],
+                ["record", "record the outcome"]];
+  const rows = {};
+  ROWS.forEach(([id, label], index) => {
+    const y = LY + 32 + index * 30;
+    const g = el("g", {}, "row" + (id === "effect" ? " effect" : ""));
+    g.appendChild(el("rect", { x: LX + 14, y, width: LW - 28, height: 26 }));
+    const t = el("text", { x: LX + 26, y: y + 17.5 });
+    t.textContent = label; g.appendChild(t);
+    N.appendChild(g); rows[id] = g;
+  });
+
+  // the ledger's state belongs to the box, so it rides in the box header
   const pill = el("g", {}, "statepill idle");
-  pill.appendChild(el("rect", { x: 60, y: 240, width: 130, height: 26 }));
-  const pillText = el("text", { x: 125, y: 257, "text-anchor": "middle" });
+  pill.appendChild(el("rect", { x: LX + LW - 122, y: LY + 8, width: 108, height: 22 }));
+  const pillText = el("text", { x: LX + LW - 68, y: LY + 23, "text-anchor": "middle" });
   pillText.textContent = "no claim"; pill.appendChild(pillText); N.appendChild(pill);
 
-  const c = (id) => { const [x, y, w, h] = BOX[id]; return { x: x + w / 2, y, b: y + h, l: x, r: x + w }; };
+  const c = (id) => { const [x, y, w, h] = BOX[id]; return { x: x + w / 2, y, b: y + h }; };
+  const LC = LX + LW / 2;
   const EDGES = {
     "start-model": `M${c("start").x} ${c("start").b} L ${c("model").x} ${c("model").y}`,
-    "model-ledger": `M${c("model").l + 20} ${c("model").b} C 100 140, 105 160, ${c("ledger").x - 18} ${c("ledger").y}`,
-    "ledger-model": `M${c("ledger").x + 22} ${c("ledger").y} C 160 160, 165 140, ${c("model").l + 44} ${c("model").b}`,
-    "model-end": `M${c("model").r} ${c("model").y + 17} C 380 95, 430 120, ${c("end").x} ${c("end").y}`,
-    "ledger-unresolved": `M${c("ledger").x - 18} ${c("ledger").b + 32} L ${c("unresolved").x - 18} ${c("unresolved").y}`,
-    "unresolved-ledger": `M${c("unresolved").x + 18} ${c("unresolved").y} C 160 285, 160 275, ${c("ledger").x + 18} ${c("ledger").b + 32}`,
+    "model-ledger": `M${c("model").x - 24} ${c("model").b} C 150 108, 130 118, ${LC - 26} ${LY}`,
+    "ledger-model": `M${LC + 26} ${LY} C 200 116, 220 108, ${c("model").x + 6} ${c("model").b}`,
+    "model-end": `M${c("model").x + 60} ${c("model").y + 16} C 400 78, 448 120, ${c("end").x} ${c("end").y}`,
+    "ledger-unresolved": `M${LC - 26} ${LY + LH} L ${LC - 26} ${c("unresolved").y}`,
+    "unresolved-ledger": `M${LC + 26} ${c("unresolved").y} L ${LC + 26} ${LY + LH}`,
   };
   const edges = {};
   for (const [id, d] of Object.entries(EDGES)) { const p = el("path", { d }, "edge"); E.appendChild(p); edges[id] = p; }
@@ -184,18 +226,19 @@
   async function play() {
     const my = ++run, alive = () => my === run;
     log.replaceChildren(); cap.innerHTML = ""; sentOut.textContent = "0"; attOut.textContent = "0";
-    Object.values(nodes).forEach(n => n.classList.remove("live", "settled"));
-    Object.values(edges).forEach(e => e.classList.remove("hot", "done"));
-    pill.setAttribute("class", "statepill idle"); pillText.textContent = "no claim";
 
     for (const step of STEPS) {
-      Object.values(nodes).forEach(n => n.classList.remove("live", "dim"));
-      Object.values(edges).forEach(e => e.classList.remove("hot"));
+      Object.values(nodes).forEach(n => n.classList.remove("live", "settled", "dim"));
+      Object.values(edges).forEach(e => e.classList.remove("hot", "done"));
+      Object.entries(rows).forEach(([id, g]) =>
+        g.setAttribute("class", "row" + (id === "effect" ? " effect" : "") +
+                       (step.rows[id] ? " " + step.rows[id] : "")));
       (step.dim || []).forEach(id => nodes[id].classList.add("dim"));
       (step.live || []).forEach(id => nodes[id].classList.add("live"));
       (step.settled || []).forEach(id => nodes[id].classList.add("settled"));
       (step.hot || []).forEach(id => edges[id].classList.add("hot"));
       (step.done || []).forEach(id => edges[id].classList.add("done"));
+      box.setAttribute("class", "box" + (step.box ? " " + step.box : ""));
 
       pillText.textContent = step.state || "no claim";
       pill.setAttribute("class", "statepill" + (step.state === "completed" ? " settled"
