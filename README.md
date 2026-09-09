@@ -19,15 +19,19 @@ second call finds it.** An attempt whose outcome was never recorded stops as
 It does not make your provider idempotent and it does not give you exactly-once.
 It records what may already have gone out, and refuses to guess the rest.
 
-![One run in LangGraph Studio: the tool sends a confirmation and loses the
-reply, the graph stops as indeterminate, resuming produces the same interrupt,
-and only an operator's confirmed outcome completes it](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+![LangGraph Studio beside a terminal. The tool sends a confirmation and loses
+the reply; the ledger reads indeterminate at attempt 1 and the mailbox holds one
+message. The graph is resumed and both readings repeat unchanged. An operator
+confirms the real outcome, the ledger empties, and the mailbox still holds one
+message](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
 
 One run of
 [examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)
-in LangGraph Studio. The tool sends the confirmation and loses its reply, so the
-attempt stops as `indeterminate`. Resuming the graph produces the same interrupt
-rather than a second confirmation, and the mailbox holds one message throughout.
+in LangGraph Studio, with the ledger and the mailbox polled beside it. The tool
+sends the confirmation and loses its reply, so the attempt stops as
+`indeterminate`. Resuming the graph prints the same row at the same attempt and
+leaves the mailbox at one message. Only an operator who confirmed the real
+outcome settles it, and that result is replayed rather than sent again.
 
 Start with the [LangChain execution boundary](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md): one
 middleware over the tools you already have. Everything else is chosen
