@@ -19,19 +19,25 @@ second call finds it.** An attempt whose outcome was never recorded stops as
 It does not make your provider idempotent and it does not give you exactly-once.
 It records what may already have gone out, and refuses to guess the rest.
 
-![LangGraph Studio beside a terminal. The tool sends a confirmation and loses
-the reply; the ledger reads indeterminate at attempt 1 and the mailbox holds one
-message. The graph is resumed and both readings repeat unchanged. An operator
-confirms the real outcome, the ledger empties, and the mailbox still holds one
-message](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+![A LangGraph Studio graph whose nodes are model, ledger and unresolved. The run
+goes model to ledger, the confirmation is sent, the reply is lost, and it stops
+on unresolved. Resuming walks unresolved to ledger and back to unresolved. After
+an operator confirms the outcome, ledger hands back to model and the run
+ends](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
 
-One run of
-[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)
-in LangGraph Studio, with the ledger and the mailbox polled beside it. The tool
-sends the confirmation and loses its reply, so the attempt stops as
-`indeterminate`. Resuming the graph prints the same row at the same attempt and
-leaves the mailbox at one message. Only an operator who confirmed the real
-outcome settles it, and that result is replayed rather than sent again.
+One run of the composed graph in
+[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py),
+in LangGraph Studio. `model` routes to `ledger`, which commits the claim before
+the confirmation leaves. The reply is lost, so the run stops on `unresolved`.
+Resuming walks `unresolved → ledger → unresolved`: the ledger refuses the
+retry, the attempt count does not move, and the mailbox still holds one message.
+Only once an operator has confirmed the real outcome does `ledger` replay it and
+hand back to `model`.
+
+That graph is composed on `EffectExecutor` directly so the boundary is a node
+you can watch. Under the `ExecutionBoundary` middleware below, the same recovery
+happens inside the `tools` node instead: LangGraph draws nodes, and middleware
+is not one. `langgraph.json` exposes both.
 
 Start with the [LangChain execution boundary](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md): one
 middleware over the tools you already have. Everything else is chosen

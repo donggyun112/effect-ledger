@@ -18,16 +18,21 @@
 제공자 멱등성을 만들어내지 않고 exactly-once도 보장하지 않는다. 이미 나갔을지 모르는 것을
 기록하고 나머지는 추측하지 않는다.
 
-![LangGraph Studio와 터미널을 나란히 둔 화면. 툴이 확인 메시지를 보내고 응답을 잃자 원장은
-attempt 1의 indeterminate를, 메일함은 1건을 가리킨다. 그래프를 재개해도 두 출력이 그대로
-반복된다. 운영자가 실제 결과를 확인하자 원장이 비고, 메일함은 여전히
-1건이다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+![노드가 model, ledger, unresolved인 LangGraph Studio 그래프. 실행이 model에서 ledger로
+가고 확인 메시지가 나간 뒤 응답을 잃어 unresolved에서 멈춘다. 재개하면 unresolved에서
+ledger를 거쳐 다시 unresolved로 돌아온다. 운영자가 결과를 확인한 뒤에야 ledger가 model로
+넘기고 실행이 끝난다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
 
-[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)를
-LangGraph Studio에서 한 번 실행하면서 원장과 메일함을 옆에서 조회한 것이다. 툴이 확인
-메시지를 보내고 응답을 잃어 시도가 `indeterminate`로 멈춘다. 그래프를 재개해도 같은 행이
-같은 attempt로 다시 찍히고 메일함은 1건 그대로다. 실제 결과를 확인한 운영자만 이것을
-종결시킬 수 있고, 그 결과는 다시 보내지지 않고 재생된다.
+[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)의
+합성 그래프를 LangGraph Studio에서 한 번 실행한 것이다. `model`이 `ledger`로 라우팅하고,
+`ledger`는 확인 메시지가 나가기 전에 실행권을 커밋한다. 응답을 잃어 실행은 `unresolved`에서
+멈춘다. 재개하면 `unresolved → ledger → unresolved`를 돌 뿐이다. 재시도를 거부하는 것은
+원장이고, attempt는 그대로이며 메일함도 1건에 머문다. 운영자가 실제 결과를 확인한 뒤에야
+`ledger`가 그 결과를 재생하고 `model`로 넘긴다.
+
+이 그래프는 경계를 눈으로 볼 수 있도록 `EffectExecutor` 위에 직접 조합한 것이다. 아래의
+`ExecutionBoundary` 미들웨어를 쓰면 같은 복구가 `tools` 노드 안에서 일어난다. LangGraph는
+노드를 그리는데 미들웨어는 노드가 아니기 때문이다. `langgraph.json`에 둘 다 들어 있다.
 
 [LangChain 실행 경계](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
 하나를 얹는 것이고, 저장소(SQLite/Postgres)와 업무 ID, 복구 정책은 따로 고른다. 코어는

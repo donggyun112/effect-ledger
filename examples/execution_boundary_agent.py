@@ -9,8 +9,10 @@ import argparse
 import json
 import os
 import sqlite3
+import time
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 from langchain.agents import create_agent
 from langchain.tools import tool
@@ -18,6 +20,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.types import interrupt
 
 from effect_ledger import EffectExecutor
 from effect_ledger.langchain import ExecutionBoundary, current_operation
@@ -48,12 +52,17 @@ class DemoModel(BaseChatModel):
         return "local-demo"
 
 
-def mailbox_tool(mailbox: Path, lose_response: bool):
-    """Build the one protected tool. Its arguments stay as the model wrote them."""
+def mailbox_tool(mailbox: Path, lose_response: bool, latency: float = 0.0):
+    """Build the one protected tool. Its arguments stay as the model wrote them.
+
+    latency stands in for the round trip to a provider. It changes nothing about
+    the ledger; it only gives the in_flight claim and the lost reply a duration
+    long enough to observe from outside the process."""
 
     @tool
     def send_confirmation(order_id: str, text: str) -> dict:
         """Send one order confirmation."""
+        time.sleep(latency)
         with closing(sqlite3.connect(mailbox)) as db:
             db.execute("CREATE TABLE IF NOT EXISTS messages "
                        "(order_id TEXT, body TEXT, provider_key TEXT)")
@@ -64,10 +73,77 @@ def mailbox_tool(mailbox: Path, lose_response: bool):
             message_id = row.lastrowid
         if lose_response:
             # The message is out. This process never learns that it went.
+            time.sleep(latency)
             raise ConnectionResetError("Response lost after the confirmation was sent")
         return {"message_id": message_id}
 
     return send_confirmation
+
+
+class LedgerState(MessagesState):
+    pending: dict[str, Any] | None
+
+
+def ledger_graph():
+    """Studio entry point that puts the ledger in the graph itself.
+
+    `ExecutionBoundary` is middleware, so LangGraph has no node to draw for it
+    and the boundary disappears into the tools node. Composed directly on
+    `EffectExecutor` the boundary is a node and the ledger's verdict is an edge:
+    completed carries on, anything unresolved stops. Resuming then walks
+    unresolved -> ledger -> unresolved, because the refusal is the ledger's."""
+    root = Path(os.environ.get("EFFECT_LEDGER_DEMO_DIR", "/tmp/boundary-demo")).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    executor = EffectExecutor(root / "effects.sqlite", scope="account-1")
+    mailbox, chat = root / "mailbox.sqlite", DemoModel()
+    latency = float(os.environ.get("EFFECT_LEDGER_DEMO_LATENCY", "0"))
+
+    def send(operation):
+        """One external effect. The handler is handed the bound operation."""
+        time.sleep(latency)
+        with closing(sqlite3.connect(mailbox)) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS messages "
+                       "(order_id TEXT, body TEXT, provider_key TEXT)")
+            db.execute("INSERT INTO messages VALUES (?, ?, ?)",
+                       (operation.request["order_id"], operation.request["text"],
+                        operation.provider_key))
+            db.commit()
+        time.sleep(latency)
+        # The message is out. This process never learns that it went.
+        raise ConnectionResetError("Response lost after the confirmation was sent")
+
+    def model(state):
+        return {"messages": [chat.invoke(state["messages"])]}
+
+    def ledger(state, config):
+        call = next(message for message in reversed(state["messages"])
+                    if isinstance(message, AIMessage) and message.tool_calls).tool_calls[0]
+        thread = config["configurable"]["thread_id"]
+        status = executor.execute(f"orders:v1:{thread}:{call['id']}", "confirmation.send:v1",
+                                  call["args"], send).response()
+        if status["state"] != "completed":
+            return {"pending": status}
+        return {"pending": None, "messages": [ToolMessage(
+            content=str(status["result"]), tool_call_id=call["id"], name=call["name"])]}
+
+    def unresolved(state):
+        # One interrupt per entry, so a resume walks back into the ledger and is
+        # refused there. The cycle on screen is that refusal, not a retry.
+        interrupt({**state["pending"], "kind": "effect_recovery"})
+        return {}
+
+    builder = StateGraph(LedgerState)
+    builder.add_node("model", model)
+    builder.add_node("ledger", ledger)
+    builder.add_node("unresolved", unresolved)
+    builder.add_edge(START, "model")
+    builder.add_conditional_edges("model", lambda state: "ledger" if getattr(
+        state["messages"][-1], "tool_calls", None) else END, ["ledger", END])
+    builder.add_conditional_edges(
+        "ledger", lambda state: "unresolved" if state.get("pending") else "model",
+        ["unresolved", "model"])
+    builder.add_edge("unresolved", "ledger")
+    return builder.compile()
 
 
 def studio_graph():
@@ -81,7 +157,8 @@ def studio_graph():
     boundary = ExecutionBoundary(
         EffectExecutor(root / "effects.sqlite", scope="account-1"),
         workflow_id="orders:v1", tools={"send_confirmation": "confirmation.send:v1"})
-    return create_agent(DemoModel(), [mailbox_tool(root / "mailbox.sqlite", True)],
+    latency = float(os.environ.get("EFFECT_LEDGER_DEMO_LATENCY", "0"))
+    return create_agent(DemoModel(), [mailbox_tool(root / "mailbox.sqlite", True, latency)],
                         middleware=[boundary])
 
 

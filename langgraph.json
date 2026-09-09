@@ -1,6 +1,7 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "orders": "./examples/execution_boundary_agent.py:studio_graph"
+    "orders": "./examples/execution_boundary_agent.py:studio_graph",
+    "orders-composed": "./examples/execution_boundary_agent.py:ledger_graph"
   }
 }
