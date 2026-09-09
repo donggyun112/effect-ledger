@@ -1,18 +1,49 @@
-"""Effect tools and recovery for root LangChain agents with durable, serialized threads."""
+"""Effect tools and recovery for root graphs with durable, serialized threads."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from langchain.tools import ToolRuntime
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 
 from ._graph_boundary import checked_identity, pause
-from .operations import _json, _text
+from .langchain import ExecutionBoundary, ToolPolicy
+from .operations import EffectExecutor, _json, _text
+
+
+class LedgerToolNode(ToolNode):
+    """Execute native tools through the ledger in a root StateGraph.
+
+    Use a `messages` state with the add_messages reducer, durable checkpoints and
+    LedgerRunner. The host serializes thread invocations. Each tool call has its
+    own operation: completed siblings replay when an unresolved batch resumes.
+    Policies map tool names to READ_ONLY or stable effect names; unlisted tools
+    are protected. Tools perform one effect and return JSON-compatible results.
+    Subgraphs, handoffs and checkpoint time travel are outside this contract.
+    """
+
+    def __init__(
+        self, tools: Sequence[BaseTool | Callable], *, executor: EffectExecutor,
+        workflow_id: str | None = None,
+        policies: Mapping[str, str | ToolPolicy] | None = None,
+        operation_id: Callable[[ToolRuntime], str] | None = None,
+        name: str = "tools", tags: list[str] | None = None,
+    ) -> None:
+        boundary = ExecutionBoundary(executor, tools=policies,
+                                     workflow_id=workflow_id, operation_id=operation_id)
+        super().__init__(
+            tools, name=name, tags=tags,
+            wrap_tool_call=boundary.wrap_tool_call,
+            awrap_tool_call=boundary.awrap_tool_call,
+        )
+
+    result = staticmethod(ExecutionBoundary.result)
 
 
 def durable_tool(
@@ -69,7 +100,7 @@ def durable_tool(
 
 
 class LedgerRunner:
-    """Guard root-agent start/resume with synchronous checkpoint durability.
+    """Guard root-graph start/resume with synchronous checkpoint durability.
 
     The host serializes threads. Direct graph calls and time travel bypass these guards."""
 

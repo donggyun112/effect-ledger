@@ -1,6 +1,6 @@
 [project]
 name = "effect-ledger"
-version = "0.1.2"
+version = "0.1.3"
 description = "Composable effect recovery with atomic SQLite/PostgreSQL stores, host-owned identity and optional LangGraph/MCP adapters."
 readme = "README.md"
 authors = [

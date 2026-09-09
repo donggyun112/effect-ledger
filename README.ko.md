@@ -5,49 +5,26 @@
 
 *[English README](https://github.com/donggyun112/effect-ledger/blob/main/README.md)*
 
-에이전트가 카드를 긁었다. 제공자의 응답이 돌아오기 전에 프로세스가 죽었다. 그래프는
-마지막 체크포인트에서 재개하며 툴을 다시 호출한다. 카드를 한 번 더 긁는다.
+## 먼저 실행하기
 
-버그가 아니라 문서화된 동작이다. 시작했지만 끝내지 못한 태스크는 재개할 때 다시 실행된다.
-효과를 안전하게 만드는 일은 사용자 몫으로 남는다.
+앱 구성에 맞는 어댑터를 설치한다.
 
-**effect-ledger는 효과가 나가기 전에 시도 기록을 커밋한다. 그래서 두 번째 호출이 그 기록을
-발견한다.** 결과를 남기지 못한 시도는 `unresolved`로 멈춰 사람을 기다린다. 추측으로 재시도하는
-경로는 없다.
+```bash
+pip install "effect-ledger[langchain]"           # LangChain 또는 LangGraph
+pip install "effect-ledger[langchain,postgres]"  # 공유 PostgreSQL 원장
+pip install "effect-ledger[mcp]"                 # MCP로 원격 효과 실행
+```
 
-제공자 멱등성을 만들어내지 않고 exactly-once도 보장하지 않는다. 이미 나갔을지 모르는 것을
-기록하고 나머지는 추측하지 않는다.
+저장소를 클론해서 개발할 때는 `uv sync --extra langchain` 또는 `uv sync --all-extras`를
+실행한다. 코어 패키지는 Python 3.10 이상에서 동작하며 런타임 의존성이 없다.
 
-![model, ledger, unresolved 세 노드의 그래프. ledger는 실행권 커밋, send_confirmation,
-결과 기록 세 단계를 담은 상자로 그려진다. 아직 아무것도 보내지 않은 상태에서 실행권이 커밋되고,
-확인 메시지가 나간 뒤 응답을 잃어 indeterminate로 unresolved에서 멈춘다. 재개하면 발송 단계가
-흐려진 채 실행되지 않고 attempt도 그대로다. 운영자가 실제 결과를 기록하자 재생된다. 보낸
-메시지와 제공자 시도 두 카운터가 계속
-1이다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/recovery-walk.gif)
+| 앱 구성 | 추가할 실행 경계 |
+|---|---|
+| `create_agent(...)` | `ExecutionBoundary` 미들웨어 |
+| `messages` 상태를 쓰는 루트 `StateGraph` | `ToolNode` 대신 `LedgerToolNode` |
+| 다른 프로세스가 처리하는 효과 | `durable_tool(...)` |
 
-효과는 원장 **안에서** 실행된다. 옆이 아니다. `EffectExecutor.execute()` 한 번이 실행권을
-커밋하고 툴을 호출하고 결과를 기록한다. 그래서 아무것도 보내지 않은 시점에 이미 실행권이
-존재한다. 응답을 잃으면 두 번째 확인 메시지를 보내는 대신 `unresolved`에서 멈춘다.
-
-판정 없이 재개하면 경계에 다시 들어가지만 발송 단계에는 도달하지 못한다. 거부하는 주체는
-원장이고 attempt는 움직이지 않는다. 실제 결과를 확인한 운영자만 이것을 종결시킬 수 있으며
-그 결과는 재생된다. 두 카운터는 끝까지 1이다.
-
-화면의 모든 값은
-[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)의
-합성 그래프를 실제로 실행해 캡처한 것이다. `in_flight` 행은 시도가 진행되는 동안 저장소를
-샘플링해서 얻었다. 소스:
-[docs/demo/recovery-walk.html](https://github.com/donggyun112/effect-ledger/blob/main/docs/demo/recovery-walk.html).
-
-이 그래프는 `EffectExecutor` 위에 직접 조합한 것이고, 그래서 경계가 노드가 된다. 아래의
-`ExecutionBoundary` 미들웨어를 쓰면 같은 복구가 `tools` 노드 안에서 일어난다. LangGraph는
-노드를 그리는데 미들웨어는 노드가 아니기 때문이다. `langgraph.json`에 `langgraph dev`용으로
-둘 다 들어 있다.
-
-[LangChain 실행 경계](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
-하나를 얹는 것이고, 저장소(SQLite/Postgres)와 업무 ID, 복구 정책은 따로 고른다. 코어는
-프레임워크에 의존하지 않는다. [조합 API와 확장 계약](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.ko.md)이 다중 호스트
-저장소까지 설명한다.
+기존 LangChain 에이전트에는 미들웨어 하나를 추가한다.
 
 ```python
 from langchain.agents import create_agent
@@ -57,33 +34,240 @@ from effect_ledger.langgraph import LedgerRunner
 
 boundary = ExecutionBoundary(
     EffectExecutor("effects.sqlite", scope="account-1"),
-    workflow_id="mail-agent:v1",
+    workflow_id="mail-agent",
 )
-# model, send_message, saver는 앱의 기존 모델·단일 효과 툴·내구 체크포인터다.
-agent = create_agent(model, [send_message], middleware=[boundary], checkpointer=saver)
+agent = create_agent(
+    model, [send_message], middleware=[boundary], checkpointer=saver,
+)
 runner = LedgerRunner(agent)
 ```
 
-등록된 모든 툴은 기본적으로 보호되며 기존 툴의 이름과 인자 스키마를 그대로 유지한다. 읽기·제어
-예외와 안정적인 효과 이름은 [LangChain 실행 경계 가이드](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)의
-`tools` 설정으로 지정한다. 여러 툴 미들웨어를 쓴다면 경계를 마지막에 배치한다.
+등록된 도구는 모두 원장을 거친다. 읽기 전용 도구, 제어 도구와 유지할 효과 이름은 `tools`
+설정에 적는다. 도구 미들웨어가 여러 개라면 `ExecutionBoundary`를 마지막에 배치해 도구와
+가장 가까운 경계로 만든다.
 
-## 설치
+직접 만든 `StateGraph`에는 [LedgerToolNode](#직접-만든-langgraph에-연결)를 사용한다.
 
-```bash
-pip install "effect-ledger[langchain]"
-pip install "effect-ledger[mcp]"       # MCP로 효과를 노출할 때
-pip install "effect-ledger[postgres]"  # 다중 호스트 저장소를 쓸 때
+## 필요한 이유
+
+에이전트가 카드를 결제한 직후, 제공자의 응답이 오기 전에 프로세스가 죽을 수 있다.
+LangGraph가 체크포인트에서 재개하면 같은 도구를 다시 호출할 수 있다.
+
+effect-ledger는 도구 호출 전에 작업 기록을 쓴다. 제공자 결과를 받지 못하면 작업은
+`unresolved`로 남는다. 다음 실행은 기존 기록을 발견하고 추가 결제 전에 멈춘다. 호스트는
+제공자를 확인한 뒤 `complete` 또는 `retry` 판정을 기록한다.
+
+제공자 멱등성과 exactly-once 전달은 제공자가 책임진다. 원장은 이미 실행됐을 수 있는 작업을
+기록하고, 확인되지 않은 재시도를 차단한다.
+
+![model, ledger, unresolved 세 노드의 그래프. ledger는 실행권 커밋, send_confirmation,
+결과 기록 세 단계를 담은 상자로 그려진다. 아직 아무것도 보내지 않은 상태에서 실행권이 커밋되고,
+확인 메시지가 나간 뒤 응답을 잃어 indeterminate로 unresolved에서 멈춘다. 재개하면 발송 단계가
+흐려진 채 실행되지 않고 attempt도 그대로다. 호스트가 확인한 결과를 기록하자 원장이 재생한다. 보낸
+메시지와 제공자 시도 두 카운터가 계속
+1이다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/recovery-walk.gif)
+
+`EffectExecutor.execute()`는 실행권을 커밋하고 도구를 호출한 뒤 결과를 기록한다. 따라서
+아무것도 보내지 않은 시점에 실행권이 먼저 존재한다. 응답을 잃으면 두 번째 확인 메시지를
+보내기 전에 `unresolved`에서 멈춘다.
+
+판정 없이 재개하면 기존 미해결 작업을 발견하고 발송 전에 멈춘다. attempt는 그대로다.
+호스트가 제공자 결과를 확인하면 원장이 그 결과를 저장하고 재생한다. 두 카운터는 끝까지 1이다.
+
+화면의 모든 값은
+[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)의
+합성 그래프를 실제로 실행해 캡처한 것이다. `in_flight` 행은 시도가 진행되는 동안 저장소를
+샘플링해서 얻었다. 소스:
+[docs/demo/recovery-walk.html](https://github.com/donggyun112/effect-ledger/blob/main/docs/demo/recovery-walk.html).
+
+데모 그래프는 `EffectExecutor`를 직접 조합하므로 실행 경계가 노드로 보인다.
+`ExecutionBoundary`는 에이전트의 기존 `tools` 노드 안에서 실행된다. `langgraph.json`은
+`langgraph dev`에서 두 구성을 모두 보여준다.
+
+[LangChain 실행 경계 가이드](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)는
+도구 정책과 미들웨어 순서를 설명한다. [조합 가이드](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.ko.md)는
+저장소, 업무 ID, 복구 정책과 다중 호스트 배포를 다룬다.
+
+## 직접 만든 LangGraph에 연결
+
+기존 `ToolNode`를 `LedgerToolNode`로 교체한다. `@tool` 함수와 모델 루프를 유지하며,
+한 모델 응답에서 같은 도구를 여러 번 호출해도 개별 실행마다 기록한다.
+
+```python
+from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.prebuilt import tools_condition
+from effect_ledger import EffectExecutor, RecoveryDecision
+from effect_ledger.langchain import READ_ONLY
+from effect_ledger.langgraph import LedgerRunner, LedgerToolNode
+
+# model, 도구 함수들, saver, provider_for는 앱에서 제공한다.
+tools = [send_mail, send_slack, create_ticket, search]
+model_with_tools = model.bind_tools(tools)
+
+def reconcile(operation):
+    provider = provider_for(operation.effect)
+    receipt = provider.find_confirmed_receipt(
+        operation.provider_key, operation.request,
+    )
+    if receipt is None:
+        return None
+    return RecoveryDecision(
+        action="complete",
+        decision_id=f"{operation.effect}:{receipt.id}",
+        reason="Provider confirmed this operation",
+        result=LedgerToolNode.result(
+            "Completed", artifact={"receipt_id": receipt.id},
+        ),
+    )
+
+executor = EffectExecutor(
+    "effects.sqlite", scope="account-1", recovery=reconcile,
+)
+
+builder = StateGraph(MessagesState)
+builder.add_node("model", lambda state: {
+    "messages": [model_with_tools.invoke(state["messages"])]
+})
+builder.add_node("tools", LedgerToolNode(
+    tools,
+    executor=executor,
+    workflow_id="order-notifications",
+    policies={
+        "send_mail": "mail.send:v1",
+        "send_slack": "slack.send:v1",
+        "create_ticket": "ticket.create:v1",
+        "search": READ_ONLY,
+    },
+))
+builder.add_edge(START, "model")
+builder.add_conditional_edges("model", tools_condition)
+builder.add_edge("tools", "model")
+
+runner = LedgerRunner(builder.compile(checkpointer=saver))
+config = {"configurable": {"thread_id": "order-123"}}
+outcome = runner.start(
+    {"messages": [("user", "확인 메일을 보내고 슬랙에도 알려줘.")]},
+    config,
+)
 ```
 
-이 저장소를 클론해서 개발할 때는 `uv sync --extra langchain`(또는 `--all-extras`)을 쓴다.
+노드는 미들웨어와 같은 실행 경계를 사용한다. 설정에 없는 도구도
+`langchain.tool:<도구 이름>` 효과로 보호한다. `policies`에서
+`{"send_mail": "mail.send:v1"}`처럼 유지할 효과 이름을 정할 수 있다.
+`READ_ONLY` 도구는 원장을 생략하므로 재개 시 다시 실행될 수 있다.
+같은 도구에 미들웨어나 `durable_tool`을 이중 적용하지 않는다.
 
-코어는 Python 3.10 이상과 표준 라이브러리만 사용한다. MCP extra는 SDK v1
-(`mcp>=1.28,<2`)용이고, LangChain 실행 경계와 LangGraph 어댑터는 `[langchain]` extra를 쓴다.
+메일은 완료되고 슬랙 응답만 유실되면 그래프가 보류된다. 재개 시 메일의 저장된
+`ToolMessage`를 재생하고 원장에서 슬랙 작업이 여전히 미해결임을 확인한다. 두 효과의 attempt는
+그대로 유지된다. 기본 ToolNode는 여러 호출을 동시에 실행할 수 있으므로 보류됐다고 모든
+워커와 외부 요청이 종료된 것은 아니다. 여러 미해결 호출은 재개 과정에서 차례로 드러날 수 있다.
+`executor.unresolved()`로 해당 scope의 미해결 기록을 조회한다.
+
+### 복구 판정의 책임
+
+원장은 상태 변경, 버전 확인, 중복 판정 방지와 저장된 결과 재생을 담당한다. 메일 제공자가
+요청을 받았는지, 결제가 확정됐는지, 이전 워커가 계속 실행될 수 있는지는 알 수 없다.
+제공자의 영수증을 조회하고 성공 여부를 해석하는 일은 애플리케이션의 비즈니스 로직이다.
+
+자동 복구 워커, webhook, 운영 서비스 또는 관리자 화면에서 이 비즈니스 대조 작업을 수행할
+수 있다. 판단할 수 없으면 미해결 상태를 유지한다. 충분한 증거가 있을 때만 신뢰된
+`complete` 또는 `retry` 판정을 제출한다. API는 사람 운영자를 요구하지 않는다.
+
+호스트가 이전 워커를 중단하면 복구 워커가 설정된 정책으로 작업을 대조한다. `recover()`는
+현재 레코드와 버전을 읽어 반환된 판정을 적용한다. 정책이 판단을 보류하면 기존 상태를 유지한다.
+
+```python
+pending = outcome["__interrupt__"][0].value
+record = executor.recover(
+    pending["operation_id"],
+    workers_stopped=True,
+)
+if record.state == "completed":
+    outcome = runner.resume(config)
+```
+
+복구 정책은 확인된 결과를 `LedgerToolNode.result(...)`로 감싸 ToolMessage 포맷을 저장한다.
+`resume()`은 thread를 깨우는 역할만 한다. 정책이 이전 시도가 앞으로 적용될 수 없음을 확인한
+뒤 `action="retry"`를 반환하면 다음 시도 한 번을 허용한다.
+
+### 작업 ID 구성
+
+호스트가 작업 ID를 직접 제공하지 않을 때 `workflow_id`는 서로 다른 그래프의 도구 호출을
+구분하는 namespace가 된다. 기본 작업 ID는 다음 값을 조합해 만든다.
+
+```text
+workflow_id + thread_id + 체크포인트의 부모 AIMessage ID + tool-call ID
+```
+
+`workflow_id`는 재시작과 일반 배포에서도 유지해야 한다. 값을 바꾸면 새로운 작업 ID 공간이
+생기므로 완료된 외부 효과도 다시 실행될 수 있다. 도구의 외부 의미가 바뀌었다면 `policies`의
+효과 이름을 버전 관리한다. 일반 배포 때 workflow ID를 바꾸는 방식으로 마이그레이션하지 않는다.
+
+애플리케이션이 개별 업무의 내구 ID를 이미 관리한다면 `operation_id` 콜백을 제공하고
+`workflow_id`를 생략할 수 있다.
+
+```python
+tools_node = LedgerToolNode(
+    tools,
+    executor=executor,
+    operation_id=lambda runtime: runtime.state["operation_ids"][runtime.tool_call_id],
+)
+```
+
+콜백은 서로 다른 업무에는 다른 ID를, 같은 업무의 재생에는 같은 ID를 반환해야 한다. 모든
+도구 호출에 하나의 ID를 공유하면 안 된다.
+
+### 지원하는 그래프 형태
+
+지원 범위는 `MessagesState`(또는 `add_messages` reducer를 쓰는
+`messages` 필드), 내구 체크포인터, `LedgerRunner`를 통해 같은 thread 호출을 직렬화하는
+루트 그래프다. 보호된 도구 하나는 외부 효과 하나를 수행하고 JSON으로 표현 가능한 결과·
+artifact를 반환해야 한다. 서브그래프·handoff·time travel·보호된 도구 내부의 승인 interrupt는
+이 계약 밖이다. 비동기 도구는 비동기 체크포인터와 `astart`/`aresume`으로 실행한다.
+
+### 여러 도구의 복구 예제 실행
+
+[examples/ledger_tool_node.py](examples/ledger_tool_node.py)는 모델 API 키 없이 실행된다.
+메일·슬랙 발송을 로컬 SQLite 테이블로 시뮬레이션하고 슬랙 응답만 유실시킨다.
+새 상태 디렉터리로 다음 명령을 하나씩 실행한다.
+
+```bash
+uv sync --extra langchain
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo start --lose-response
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo resume
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo confirm --workers-stopped
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo resume
+```
+
+처음 두 명령은 `paused`, 마지막 명령은 `completed`를 반환한다. 두 발송 횟수는 끝까지
+각각 1회다. `confirm`은 로컬 영수증의 provider key·채널·원본 본문을 작업 기록과 대조한다.
+`--workers-stopped`는 이전 프로세스와 요청이 계속 실행될 수 없다는 확인이며 실제 종료 명령이
+아니다. `status`로 체크포인트와 미해결 기록을 조회할 수 있다.
+
+### PostgreSQL에 실행 기록 저장
+
+`effect-ledger[langchain,postgres]`를 설치하고 executor 생성 부분만 교체한다.
+
+```python
+import os
+from effect_ledger.postgres import PostgresOperationStore
+
+# DATABASE_URL=postgresql://user:password@localhost:5432/my_app
+executor = EffectExecutor(
+    store=PostgresOperationStore(os.environ["DATABASE_URL"]),
+    scope="account-1",
+)
+```
+
+`my_app` DB는 미리 생성하며 이름은 직접 정한다. 저장소는 연결의 `search_path`에
+`operations`, `decisions`, `schema_version` 테이블을 생성·마이그레이션한다. 모든 워커는 같은
+DB·스키마·scope를 사용한다. 기존 SQLite 기록은 자동 이전되지 않는다. LangGraph의 내구
+체크포인터는 별도로 설정한다. 같은 PostgreSQL DB를 사용할 수 있지만 체크포인트와 원장 변경이
+하나의 트랜잭션으로 묶이지는 않는다. 저장소를 바꿔도 도구 노드 코드는 그대로다.
 
 ## 실행 계약
 
-호스트는 **논리 작업 ID를 호출 전에 내구적으로 저장**하고 재시도 시 재사용하며, MCP 요청 ID나
+호스트는 논리 작업 ID를 호출 전에 내구적으로 저장하고 재시도 시 재사용하며, MCP 요청 ID나
 모델이 매번 생성하는 툴 호출 ID로 대체하지 않는다. 서버는 계정/테넌트 scope와 효과 이름·버전을
 고정한다.
 
@@ -116,20 +300,21 @@ pip install "effect-ledger[postgres]"  # 다중 호스트 저장소를 쓸 때
 않는다. 응답의 `next_action`은 `in_flight`이면 `wait`, `indeterminate`이면 `reconcile`,
 `ready`이면 `execute`, `completed`이면 `use_result`를 반환한다.
 
-경쟁에서 진 호출자는 먼저 `get_effect`로 완료를 기다리며 즉시 운영자 판정을 요구하지 않는다.
+경쟁에서 진 호출자는 먼저 `get_effect`로 완료를 기다린 뒤 복구 경로로 넘긴다.
 저장소 오류로 응답을 못 받았을 때도 동일 작업 ID를 유지한다.
 
 핸들러는 동기 함수이며 내부 SDK 재시도와 복수 효과의 부분 성공은 핸들러/제공자 어댑터의
 책임이다.
 
-### 리스가 없다. 그게 설계다
+### 리스와 자동 만료 없음
 
 `in_flight`는 작업자가 살아 있다는 뜻이 아니다. 리스도 heartbeat도 없으므로 그 상태에 있는
 작업은 지금도 실행 중일 수도 있고 일주일 전에 죽었을 수도 있다. 원장은 둘을 구분하지 못하고
 바깥에서도 구분할 수 없다.
 
-**그래서 여기서는 아무것도 만료되지 않는다.** 시간이 아무리 지나도 `in_flight`에서 저절로
-빠져나오는 일은 없고, 작업자를 멈추고 제공자를 확인한 사람만 `resolve`로 판정할 수 있다.
+작업은 자동으로 만료되지 않는다. 타이머는 제공자 결과를 볼 수 없으므로 시간이 지나도
+`in_flight`에서 저절로 빠져나오지 않는다. 호스트가 이전 작업자를 중지하고 제공자 요청을
+대조한 뒤 `resolve`로 판정한다.
 
 나중에 리스를 열더라도 그것은 조사 신호이지 실행권이 아니다. 다음 시도를 허용하는 경로는
 여전히 `resolve` 하나다.
@@ -137,7 +322,7 @@ pip install "effect-ledger[postgres]"  # 다중 호스트 저장소를 쓸 때
 ## MCP 서버 예제
 
 [examples/mcp_server.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/mcp_server.py)는 별도 SQLite 파일에 메시지를 추가하는
-**로컬 비멱등 메일함**이며 실제 메일이나 외부 계정에 접근하지 않는다.
+로컬 비멱등 메일함이며 실제 메일이나 외부 계정에 접근하지 않는다.
 
 ```bash
 uv run --extra mcp python examples/mcp_server.py --ledger /tmp/effects.sqlite --mailbox /tmp/mailbox.sqlite
@@ -159,21 +344,22 @@ provider key는 툴 인자로 받지 않는다. 제공자별 입력 검증은 �
 응답은 `structuredContent`와 JSON text에 동일한 상태를 담는다. 미해결도 유효한 상태 응답이라
 `isError=false`일 수 있다.
 
-**호스트는 `unresolved`를 검사하고 후속 업무를 보류해야 한다.** 모델에게 오류 문장만 보여주는
+호스트는 `unresolved`를 검사하고 후속 업무를 보류해야 한다. 모델에게 오류 문장만 보여주는
 것으로는 fail-closed가 완성되지 않는다. 서버는 의미적 중복, 곧 같은 업무를 새 ID로 다시
 요청하는 경우를 알아낼 수 없다.
 
 `--lose-response`를 추가하면 메일함 저장 후 응답 유실을 흉내 낸다. 재호출해도 메시지는
 추가되지 않고 `indeterminate`가 반환된다. 실제 강제 종료 검증은 테스트에 있다.
 
-## 운영자 복구
+## 미해결 작업 복구
 
-복구 API는 MCP 툴로 노출하지 않으며 신뢰할 수 있는 운영 경로에서 호출한다. **기존 작업자를
-중지하고 이미 전송된 제공자 요청의 상태까지 확인한 뒤** 판정한다. `workers_stopped=True`는
-호출자의 확인이며 원격 효과를 차단하는 장치가 아니다.
+복구 API는 MCP 툴로 노출하지 않는다. 기존 작업자를 중지하고 이미 전송된 제공자 요청의
+상태까지 확인한 뒤, 신뢰할 수 있는 호스트 경로에서 호출한다. `workers_stopped=True`는
+호출자의 확인을 기록하며 원격 효과를 차단하지 못한다.
 
-`effect-ledger` 콘솔은 읽기와 기록을 담당할 뿐 확인은 담당하지 않는다. 여기 어떤 명령도
-제공자에게 말을 걸지 않는다.
+제공자 결과를 확인하고 해석하는 일은 호스트의 비즈니스 로직이다. 자동 복구 워커, webhook,
+운영 서비스 또는 관리자 화면에서 처리할 수 있다. `effect-ledger` 콘솔은 판정을 읽고 기록하며
+제공자에게 요청을 보내지 않는다.
 
 ```console
 $ effect-ledger --db effects.sqlite --scope account-1 list
@@ -183,18 +369,15 @@ indeterminate    2   1  payment.charge:v1        charge-1
 $ effect-ledger --db effects.sqlite --scope account-1 show charge-1
 { "request": { "amount": 4200, "card": "tok_x" }, "state": "indeterminate", "version": 2, ... }
 
-# 이제 그 요청에 대한 제공자 쪽 기록을 직접 확인한다. 그다음에만:
+# 이 요청에 대한 제공자 기록을 확인한 뒤:
 $ effect-ledger --db effects.sqlite --scope account-1 resolve charge-1 \
     --complete --result-json '{"charge_id": "ch_77"}' \
     --expected-version 2 --decision-id operator-charge-1 \
     --reason "Stripe shows ch_77; workers drained" --workers-stopped
 ```
 
-`--expected-version`을 손으로 넣게 한 것은 의도다. 저장소에서 채워 넣으면 그 판정은 바로 그
-순간의 행을 가리키게 되는데, 그건 운영자가 본 것이 아니다. 손으로 넘겨야 조사하는 동안
-상태가 바뀌었을 때 그 판정을 거부할 수 있다.
-
-`--db`는 `postgresql://` DSN도 받는다.
+복구 경로가 조사한 버전을 `--expected-version`으로 전달한다. 대조 작업 중 상태가 바뀌면
+오래된 버전의 판정을 거부한다. `--db`는 `postgresql://` DSN도 받는다.
 
 ```python
 from effect_ledger import EffectExecutor
@@ -204,12 +387,12 @@ record = executor.get("message-1")
 if record is None:
     raise LookupError("Unknown operation")
 
-# 메일함의 message_id=1을 실제 확인했고 이전 서버가 종료된 경우에만 실행.
+# 메일함의 message_id=1을 확인하고 이전 워커를 중지한 뒤 실행.
 executor.resolve(
     "message-1", expected_version=record.version,
     decision_id="operator-confirmed-message-1",
     action="complete", result={"message_id": 1},
-    reason="Mailbox confirms message 1; previous server stopped",
+    reason="Mailbox confirms message 1; previous workers stopped",
     workers_stopped=True,
 )
 ```
@@ -225,9 +408,9 @@ executor.resolve(
 버전에 새 판정이 오면 거절한다. 늦은 결과는 변경된 버전을 덮어쓰지 못하지만 이미 전송된 외부
 요청을 취소하지는 못한다.
 
-`execute()`의 `OperationConflict`도 효과 실패를 뜻하지 않는다. 요청 바인딩이 다르면 실행 전에
-발생하지만 실행권 버전이 바뀌면 **외부 효과가 성공한 뒤 결과 저장 시점에도** 발생할 수 있다.
-동일 작업을 조회하고 판정해야 하며 예외만 보고 새 ID로 재시도하지 않는다.
+`execute()`의 `OperationConflict`만으로 효과 실패를 판단할 수 없다. 요청 바인딩이 다르면
+실행 전에 발생한다. 실행권 버전이 바뀐 경우에는 외부 효과가 성공한 뒤 결과를 저장할 때도
+발생할 수 있다. 동일 작업을 조회하고 판정하며, 예외만 보고 새 ID로 재시도하지 않는다.
 
 ## 저장소와 배포 범위
 
@@ -238,15 +421,14 @@ SQLite `BEGIN IMMEDIATE`로 실행권을 원자적으로 획득하고 `synchrono
 네트워크 파일시스템이나 다중 호스트용 구현은 아니다. DB 손실과 오래된 백업 복원, 원장 삭제는
 보장을 깨뜨리며 자동 만료/삭제는 구현하지 않았다.
 
-원장은 스키마 버전을 갖고, 열 때 제자리에서 올라간다. 더 새 릴리스가 쓴 원장은 잘못
-읽는 대신 시작 시점에 거부한다. 다운그레이드가 거기서 멈추므로, 운영자 명령까지 포함해
-모든 읽기가 깨지는 일은 생기지 않는다.
+원장은 스키마 버전을 갖고 열 때 제자리에서 올라간다. 현재 빌드보다 새 릴리스가 쓴 원장은
+시작 시점에 거부하므로 다운그레이드 오류가 한곳에서 드러난다.
 
 다중 호스트에서는 `[postgres]`의 `PostgresOperationStore(dsn)`를 주입한다. 같은 DB와 scope를
 사용하는 호스트들이 실행권을 공유한다. scope별 짧은 트랜잭션을 직렬화하며 외부 호출 동안
 잠금을 잡지 않는다.
 
-연결 풀과 스키마 마이그레이션, DB 장애 조치는 포함하지 않는다. 원장의 분산 실행권과 LangGraph
+연결 풀과 DB 장애 조치는 포함하지 않는다. 원장의 분산 실행권과 LangGraph
 thread 스케줄링은 별개이므로 동일 thread 직렬화는 호스트 책임이다.
 
 scope는 인증을 대신하지 않는다. 예제는 신뢰할 수 있는 단일 호스트의 stdio용이므로, HTTP로
@@ -269,14 +451,8 @@ EFFECT_LEDGER_TEST_DSN=postgresql://postgres@localhost/effect_ledger_test \
 - 독립 프로세스 4개의 동시 호출은 실행권을 하나만 획득한다.
 - MCP stdio 연결을 실제 재시작하며 결과 재생·충돌·미해결·복구를 검증한다.
 
-CI는 Python 3.10–3.13에서 실제 PostgreSQL 서비스를 띄워 이 스위트를 돌리며, 테스트가
+CI는 Python 3.10부터 3.13까지 실제 PostgreSQL 서비스를 띄워 이 스위트를 돌리며, 테스트가
 하나라도 skip으로 보고되면 빌드를 실패시킨다.
 
 설계 근거는 `probes/`에 순서대로 남아 있고, 각 파일은 패키지를 import하지 않고 그대로
 실행된다. 설계와 구현 계획은 `docs/superpowers/`에 있다.
-
-초기의 `EffectLedger` 미들웨어와 `MixedEffectDetector`는 제거했다. 미들웨어는 툴 바깥이라
-툴 본문의 재생을 끊지 못했고 탐지기는 그 한계를 정적 분석으로 경고하는 우회책이었다
-(`probes/probe_i~l`). `ExecutionBoundary`는 효과 전에 실행권을 커밋하므로 툴이 내부에서
-중단해도 실행권이 풀리지 않는다 — 경고할 위험 자체가 사라져 탐지기도 함께 사라졌다.
-필요하면 git 히스토리에서 꺼낼 수 있다.

@@ -5,56 +5,26 @@
 
 *[한국어 README](https://github.com/donggyun112/effect-ledger/blob/main/README.ko.md)*
 
-Your agent charged the card. The process died before the provider's reply came
-back. The graph resumes from its last checkpoint, calls the tool again, and
-charges the card a second time.
+## Start here
 
-That is documented behaviour rather than a bug. A task that started but did not
-finish runs again on resume, and keeping the side effect safe is left to you.
+Install the adapter that matches your application:
 
-**effect-ledger commits a record of the attempt before the effect leaves, so the
-second call finds it.** An attempt whose outcome was never recorded stops as
-`unresolved` and waits for a person. Nothing is retried on a guess.
+```bash
+pip install "effect-ledger[langchain]"           # LangChain or LangGraph
+pip install "effect-ledger[langchain,postgres]"  # shared PostgreSQL ledger
+pip install "effect-ledger[mcp]"                 # remote effects over MCP
+```
 
-It does not make your provider idempotent and it does not give you exactly-once.
-It records what may already have gone out, and refuses to guess the rest.
+Inside a clone, run `uv sync --extra langchain` or `uv sync --all-extras`.
+The core package needs Python 3.10+ and has no runtime dependencies.
 
-![A graph of model, ledger and unresolved. The ledger is drawn as a box holding
-three steps: commit the claim, send_confirmation, record the outcome. The claim
-is committed while nothing has been sent; the confirmation goes out and its
-reply is lost, so the run stops on unresolved as indeterminate. On resume the
-send step is greyed out and never runs, and the attempt count is unchanged. An
-operator records the real outcome and it is replayed. Two counters, messages
-sent and provider attempts, stay at
-one](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/recovery-walk.gif)
+| Your application | Add this boundary |
+|---|---|
+| `create_agent(...)` | `ExecutionBoundary` middleware |
+| A root `StateGraph` with `messages` state | `LedgerToolNode` in place of `ToolNode` |
+| An effect handled by another process | `durable_tool(...)` |
 
-The effect runs **inside** the ledger, never beside it. One
-`EffectExecutor.execute()` call commits the claim, calls the tool, and records
-the outcome, which is why the claim exists before anything has been sent. The
-reply is lost, so the run stops on `unresolved` rather than sending a second
-confirmation.
-
-Resuming without a decision re-enters the boundary and the send step is simply
-not reached: the refusal is the ledger's, and the attempt count does not move.
-Only an operator who confirmed the real outcome settles it, and that result is
-replayed. Both counters stay at one.
-
-Every value on that screen was captured from a real run of the composed graph in
-[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py),
-including the `in_flight` rows, which were sampled from the store while the
-attempt was still running. Source:
-[docs/demo/recovery-walk.html](https://github.com/donggyun112/effect-ledger/blob/main/docs/demo/recovery-walk.html).
-
-That graph is composed on `EffectExecutor` directly, which is what makes the
-boundary a node. Under the `ExecutionBoundary` middleware below, the same
-recovery happens inside the `tools` node instead: LangGraph draws nodes, and
-middleware is not one. `langgraph.json` exposes both for `langgraph dev`.
-
-Start with the [LangChain execution boundary](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md): one
-middleware over the tools you already have. Everything else is chosen
-separately — the store (SQLite/Postgres), the business ID, the recovery policy —
-and the core depends on no framework. [The composition API and extension
-contract](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.md) covers that, up to a multi-host store.
+For an existing LangChain agent, add one middleware:
 
 ```python
 from langchain.agents import create_agent
@@ -64,38 +34,257 @@ from effect_ledger.langgraph import LedgerRunner
 
 boundary = ExecutionBoundary(
     EffectExecutor("effects.sqlite", scope="account-1"),
-    workflow_id="mail-agent:v1",
+    workflow_id="mail-agent",
 )
-# model, send_message and saver are your existing model, single-effect tool
-# and durable checkpointer.
-agent = create_agent(model, [send_message], middleware=[boundary], checkpointer=saver)
+agent = create_agent(
+    model, [send_message], middleware=[boundary], checkpointer=saver,
+)
 runner = LedgerRunner(agent)
 ```
 
-Every registered tool is protected by default. Tool names and argument schemas
-are preserved. Read-only and control exceptions, and stable effect names, are
-declared through the `tools` mapping described in the
-[LangChain execution boundary guide](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md). With several
-tool middlewares, install the boundary last.
+Every registered tool passes through the ledger. Use the `tools` mapping for
+read-only tools, control tools and stable effect names. If the agent has several
+tool middleware components, put `ExecutionBoundary` last so it sits closest to
+the tool.
 
-## Install
+Use [LedgerToolNode](#use-your-own-langgraph) when you build the `StateGraph`
+yourself.
 
-```bash
-pip install "effect-ledger[langchain]"
-pip install "effect-ledger[mcp]"       # to expose effects over MCP
-pip install "effect-ledger[postgres]"  # for a multi-host store
+## Why it exists
+
+An agent charges a card, then the process dies before the provider's reply
+arrives. LangGraph resumes from its checkpoint and may call the tool again.
+
+effect-ledger writes an operation record before it calls the tool. If the
+provider outcome is lost, the operation stays `unresolved`. A later run finds
+that record and stops before another charge. The host can then check the
+provider and record a `complete` or `retry` decision.
+
+Provider idempotency and exactly-once delivery remain provider concerns. The
+ledger records what may already have happened and blocks an unverified retry.
+
+![A graph of model, ledger and unresolved. The ledger is drawn as a box holding
+three steps: commit the claim, send_confirmation, record the outcome. The claim
+is committed while nothing has been sent; the confirmation goes out and its
+reply is lost, so the run stops on unresolved as indeterminate. On resume the
+send step is greyed out and never runs, and the attempt count is unchanged. The
+host records the confirmed outcome and the ledger replays it. Two counters, messages
+sent and provider attempts, stay at
+one](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/recovery-walk.gif)
+
+`EffectExecutor.execute()` commits the claim, calls the tool, and records the
+outcome. The claim therefore exists before anything has been sent. If the reply
+is lost, the run stops on `unresolved` before a second confirmation is sent.
+
+Resuming without a decision re-enters the boundary, finds the unresolved
+operation and stops before the send step. The attempt count stays unchanged.
+After the host confirms the provider outcome, the ledger stores and replays that
+result. Both counters stay at one.
+
+Every value on that screen was captured from a real run of the composed graph in
+[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py),
+including the `in_flight` rows, which were sampled from the store while the
+attempt was still running. Source:
+[docs/demo/recovery-walk.html](https://github.com/donggyun112/effect-ledger/blob/main/docs/demo/recovery-walk.html).
+
+The demo graph composes `EffectExecutor` directly, so the boundary appears as a
+node. `ExecutionBoundary` runs inside an agent's existing `tools` node.
+`langgraph.json` exposes both versions for `langgraph dev`.
+
+See the [LangChain execution boundary guide](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md)
+for tool policies and middleware ordering. The [composition guide](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.md)
+covers storage, business IDs, recovery policies and multi-host deployment.
+
+## Use your own LangGraph
+
+Replace your `ToolNode` with `LedgerToolNode`. Keep your existing `@tool`
+functions and model loop; each call is recorded separately, including multiple
+calls to the same tool in one model response.
+
+```python
+from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.prebuilt import tools_condition
+from effect_ledger import EffectExecutor, RecoveryDecision
+from effect_ledger.langchain import READ_ONLY
+from effect_ledger.langgraph import LedgerRunner, LedgerToolNode
+
+# model, tools, saver and provider_for come from your application.
+tools = [send_mail, send_slack, create_ticket, search]
+model_with_tools = model.bind_tools(tools)
+
+def reconcile(operation):
+    provider = provider_for(operation.effect)
+    receipt = provider.find_confirmed_receipt(
+        operation.provider_key, operation.request,
+    )
+    if receipt is None:
+        return None
+    return RecoveryDecision(
+        action="complete",
+        decision_id=f"{operation.effect}:{receipt.id}",
+        reason="Provider confirmed this operation",
+        result=LedgerToolNode.result(
+            "Completed", artifact={"receipt_id": receipt.id},
+        ),
+    )
+
+executor = EffectExecutor(
+    "effects.sqlite", scope="account-1", recovery=reconcile,
+)
+
+builder = StateGraph(MessagesState)
+builder.add_node("model", lambda state: {
+    "messages": [model_with_tools.invoke(state["messages"])]
+})
+builder.add_node("tools", LedgerToolNode(
+    tools,
+    executor=executor,
+    workflow_id="order-notifications",
+    policies={
+        "send_mail": "mail.send:v1",
+        "send_slack": "slack.send:v1",
+        "create_ticket": "ticket.create:v1",
+        "search": READ_ONLY,
+    },
+))
+builder.add_edge(START, "model")
+builder.add_conditional_edges("model", tools_condition)
+builder.add_edge("tools", "model")
+
+runner = LedgerRunner(builder.compile(checkpointer=saver))
+config = {"configurable": {"thread_id": "order-123"}}
+outcome = runner.start(
+    {"messages": [("user", "Send a confirmation email and notify Slack.")]},
+    config,
+)
 ```
 
-Working inside a clone of this repository, use `uv sync --extra langchain`
-(or `--all-extras`) instead.
+The node uses the same execution boundary as the middleware. Unlisted tools are
+protected with effect names `langchain.tool:<tool-name>`; `policies` can pin a
+stable effect name, for example `{"send_mail": "mail.send:v1"}`. `READ_ONLY`
+tools bypass the ledger and can run again on resume. Do not apply the middleware
+or `durable_tool` to the same tools a second time.
 
-The core needs Python 3.10+ and the standard library only. The MCP extra targets
-SDK v1 (`mcp>=1.28,<2`). The LangChain execution boundary and the LangGraph
-adapters use the `[langchain]` extra.
+If mail completes and Slack loses its reply, the graph pauses. Resuming replays
+mail's stored `ToolMessage` and finds Slack still unresolved in the ledger. Both
+effects keep their original attempt count. Native ToolNode can run sibling calls
+concurrently, so a pause is not evidence that every worker or provider request
+has stopped. Some pending calls may surface on subsequent resumes;
+`executor.unresolved()` lists the unsettled operations in the scope.
+
+### Recovery decisions belong to the host
+
+The ledger owns the state transition, version check, decision idempotency and
+stored-result replay. It cannot know whether a mail provider accepted a request,
+whether a payment settled or whether an old worker can still continue. Looking
+up provider receipts and interpreting them is application business logic.
+
+An automated recovery worker, webhook, operations service or admin tool can run
+the business check. It leaves the operation unresolved when the evidence is
+inconclusive. With enough evidence, it submits a trusted `complete` or `retry`
+decision. The API does not require a human operator.
+
+After the host stops old workers, the recovery worker asks the configured policy
+to reconcile the operation. `recover()` reads the current record and version,
+applies a returned decision and leaves an inconclusive operation unchanged:
+
+```python
+pending = outcome["__interrupt__"][0].value
+record = executor.recover(
+    pending["operation_id"],
+    workers_stopped=True,
+)
+if record.state == "completed":
+    outcome = runner.resume(config)
+```
+
+The recovery policy uses `LedgerToolNode.result(...)` because a confirmed result
+must contain the ToolMessage envelope. `resume()` only wakes the thread. A
+trusted policy may return `action="retry"` after it proves that the previous
+attempt cannot take effect; that decision grants one more attempt.
+
+### Operation identity
+
+When the host does not supply its own operation IDs, `workflow_id` namespaces
+tool calls from different graphs. The default operation ID combines:
+
+```text
+workflow_id + thread_id + checkpointed parent AIMessage ID + tool-call ID
+```
+
+Keep `workflow_id` stable across restarts and routine deployments. Changing it
+creates a new operation-ID space, so previously completed effects can execute
+again. Version the stable effect name in `policies` when a tool's external
+meaning changes; do not use routine workflow-ID changes as a migration strategy.
+
+If the application already owns a durable ID for every individual action, pass
+an `operation_id` callback instead and omit `workflow_id`:
+
+```python
+tools_node = LedgerToolNode(
+    tools,
+    executor=executor,
+    operation_id=lambda runtime: runtime.state["operation_ids"][runtime.tool_call_id],
+)
+```
+
+The callback must return a different ID for different actions and the same ID
+when replaying one action. Never return one shared ID for every tool call.
+
+### Supported graph shape
+
+The supported graph is a root graph with `MessagesState`
+(or a `messages` field using `add_messages`), a durable checkpointer and serialized
+invocations per thread through `LedgerRunner`. Each protected tool performs one
+effect and returns JSON-compatible content/artifacts. Subgraphs, handoffs,
+time travel and approval interrupts inside protected tools are outside this
+contract. Use `astart`/`aresume` with an async checkpointer for async tools.
+
+### Run the multi-tool recovery example
+
+[examples/ledger_tool_node.py](examples/ledger_tool_node.py) runs without a model
+API key. It simulates mail and Slack with a local SQLite delivery table and loses
+only Slack's reply. Run these commands one at a time, with a fresh state directory:
+
+```bash
+uv sync --extra langchain
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo start --lose-response
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo resume
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo confirm --workers-stopped
+uv run python examples/ledger_tool_node.py --state-dir /tmp/node-demo resume
+```
+
+The first two commands report `paused`; the last reports `completed`. Both
+delivery counts stay at 1. `confirm` verifies the local receipt against the
+operation's provider key, channel and original text. The `--workers-stopped`
+flag asserts that previous processes/requests cannot continue; it does not stop
+them. Use `status` to inspect the checkpoint and outstanding records.
+
+### Store the ledger in PostgreSQL
+
+Install `effect-ledger[langchain,postgres]` and replace only the executor setup:
+
+```python
+import os
+from effect_ledger.postgres import PostgresOperationStore
+
+# DATABASE_URL=postgresql://user:password@localhost:5432/my_app
+executor = EffectExecutor(
+    store=PostgresOperationStore(os.environ["DATABASE_URL"]),
+    scope="account-1",
+)
+```
+
+Create `my_app` beforehand; its name is your choice. The store creates/migrates
+`operations`, `decisions` and `schema_version` in the configured `search_path`.
+All workers share the same DB, schema and scope. SQLite records are not copied
+automatically. LangGraph's durable checkpointer is configured separately; it can
+use the same PostgreSQL DB, but checkpoint and ledger writes remain separate
+transactions. Changing the ledger backend does not change the tools node.
 
 ## Execution contract
 
-The host **stores a logical operation ID durably before the call** and reuses it
+The host stores a logical operation ID durably before the call and reuses it
 on retry. Do not substitute an MCP request ID or a tool call ID that the model
 regenerates each turn. The server fixes the account/tenant scope and the effect
 name and version.
@@ -127,23 +316,23 @@ The first two states carry `unresolved=true`. Elapsed time, cancellation and
 restarts never clear them automatically. In the response, `next_action` is
 `wait` for `in_flight` and `reconcile` for `indeterminate`; `ready` returns
 `execute` and `completed` returns `use_result`. A caller that loses the race
-should first wait on `get_effect` for completion rather than demanding an
-operator decision immediately. Keep the same operation ID even
+should first wait on `get_effect` for completion before escalating to recovery.
+Keep the same operation ID even
 when a store error prevented a response from arriving. The handler is a
 synchronous function; SDK-internal retries and partial success across multiple
 effects are the responsibility of the handler or provider adapter.
 
-### There is no lease, and that is the point
+### No lease or automatic expiry
 
 `in_flight` does not mean a worker is alive. There is no lease and no heartbeat,
 so an operation can sit there because the worker is still running, or because it
 was killed a week ago. The ledger cannot tell those apart, and neither can you
 from the outside.
 
-**So nothing expires here.** No amount of elapsed time moves an operation out of
-`in_flight`, because a claim that expires on a timer is a retry permit handed out
-by a clock that never saw the provider. Only a person who stopped the workers and
-checked the provider can settle it, through `resolve`.
+Nothing expires automatically. Elapsed time never moves an operation out of
+`in_flight` because a timer cannot see the provider outcome. The host settles the
+operation through `resolve` after it has stopped old workers and reconciled the
+provider request.
 
 If a lease is ever added it will be an investigation signal and never a claim:
 expiry would tell you where to look, and would still leave `resolve` as the only
@@ -151,8 +340,8 @@ way to grant another attempt.
 
 ## MCP server example
 
-[examples/mcp_server.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/mcp_server.py) is a **local non-idempotent
-mailbox** that appends messages to a separate SQLite file. It touches no real
+[examples/mcp_server.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/mcp_server.py) is a local non-idempotent
+mailbox that appends messages to a separate SQLite file. It touches no real
 mail and no external account.
 
 ```bash
@@ -175,24 +364,24 @@ arguments. Provider-specific input validation belongs to the handler.
 
 The response carries the same state in `structuredContent` and in the JSON text.
 An unresolved answer is a valid state response and may come with
-`isError=false`. **The host must inspect `unresolved` and hold downstream work.**
+`isError=false`. The host must inspect `unresolved` and hold downstream work.
 Showing the model an error sentence does not by itself complete a fail-closed
-path. A semantic duplicate — the same business request submitted under a new ID
-— cannot be detected by the server.
+path. The server cannot detect a semantic duplicate submitted under a new ID.
 
 Adding `--lose-response` simulates a response lost after the mailbox write. A
 repeated call appends nothing and returns `indeterminate`. Real kill-based
 verification lives in the tests.
 
-## Operator recovery
+## Recover an unresolved operation
 
-The recovery API is not exposed as an MCP tool. Call it from a trusted
-operational path. Decide only **after stopping existing workers and checking the
-state of provider requests already sent.** `workers_stopped=True` is the
-caller's assertion, not a mechanism that blocks a remote effect.
+The recovery API is not exposed as an MCP tool. Call it from a trusted host path
+after stopping existing workers and checking provider requests already sent.
+`workers_stopped=True` records the caller's assertion; it cannot block a remote
+effect.
 
-The `effect-ledger` console does the reading and the recording. It does not do
-the checking — no command here talks to your provider.
+The host owns the business check. It can run in an automated recovery worker,
+webhook, operations service or admin tool. The `effect-ledger` console reads and
+records decisions but never contacts the provider.
 
 ```console
 $ effect-ledger --db effects.sqlite --scope account-1 list
@@ -202,18 +391,16 @@ indeterminate    2   1  payment.charge:v1        charge-1
 $ effect-ledger --db effects.sqlite --scope account-1 show charge-1
 { "request": { "amount": 4200, "card": "tok_x" }, "state": "indeterminate", "version": 2, ... }
 
-# Now go read the provider's own records for that request. Then, and only then:
+# After checking the provider's records for this request:
 $ effect-ledger --db effects.sqlite --scope account-1 resolve charge-1 \
     --complete --result-json '{"charge_id": "ch_77"}' \
     --expected-version 2 --decision-id operator-charge-1 \
     --reason "Stripe shows ch_77; workers drained" --workers-stopped
 ```
 
-`--expected-version` is typed in on purpose. Filling it in from the store would
-make the decision refer to the row as it is at that instant, which is not what
-the operator looked at; passing it by hand is what makes a decision refuse to
-land on a state that changed while you were investigating. `--db` also takes a
-`postgresql://` DSN.
+Pass the version that the recovery process investigated. A stale version makes
+the decision fail if the operation changed during reconciliation. `--db` also
+accepts a `postgresql://` DSN.
 
 ```python
 from effect_ledger import EffectExecutor
@@ -229,7 +416,7 @@ executor.resolve(
     "message-1", expected_version=record.version,
     decision_id="operator-confirmed-message-1",
     action="complete", result={"message_id": 1},
-    reason="Mailbox confirms message 1; previous server stopped",
+    reason="Mailbox confirms message 1; previous workers stopped",
     workers_stopped=True,
 )
 ```
@@ -247,10 +434,10 @@ version, is rejected. Decision contents, reason and time remain in the
 `decisions` table. A late result cannot overwrite a changed version, but it
 cannot cancel an external request that already went out either.
 
-An `OperationConflict` from `execute()` does not mean the effect failed. It is
-raised before execution when the request binding differs, but a changed claim
-version can also raise it **after the external effect succeeded, at the moment
-the result is stored.** Look up and adjudicate the same operation; never retry
+An `OperationConflict` from `execute()` does not prove that the effect failed.
+A request-binding mismatch raises before execution. A changed claim version can
+also raise after the external effect succeeds, while its result is being stored.
+Look up and adjudicate the same operation; never retry
 under a new ID on the strength of the exception alone.
 
 ## Store and deployment scope
@@ -262,15 +449,14 @@ database. It is not an implementation for network filesystems or multiple hosts.
 Losing the database, restoring a stale backup or deleting the ledger breaks the
 guarantee. No automatic expiry or deletion is implemented.
 
-The ledger carries a schema version and is upgraded in place when it is opened.
-One written by a newer release is refused at startup rather than misread, so a
-downgrade stops there instead of failing on every read, including the operator's
-own commands.
+The ledger carries a schema version and upgrades in place when opened. A build
+refuses a ledger written by a newer release at startup, giving downgrade errors
+one clear location.
 
 For multiple hosts, inject `PostgresOperationStore(dsn)` from `[postgres]`.
 Hosts using the same database and scope share the claim. It serializes short
 per-scope transactions and holds no lock during an external call. Connection
-pooling, schema migration and database failover are not included. The ledger's
+pooling and database failover are not included. The ledger's
 distributed claim and LangGraph thread scheduling are separate concerns;
 serializing the same thread remains the host's responsibility.
 
@@ -292,23 +478,15 @@ EFFECT_LEDGER_TEST_DSN=postgresql://postgres@localhost/effect_ledger_test \
 
 - A separate HTTP provider commits an effect to its own database, and the worker
   process is killed immediately afterwards.
-- After the new process calls again and an operator confirms completion, the
+- After the new process calls again and the host confirms completion, the
   provider effect remains a single occurrence.
 - Four independent processes calling concurrently acquire exactly one claim.
 - An MCP stdio connection is genuinely restarted to verify result replay,
   conflict, unresolved state and recovery.
 
-CI runs this suite on Python 3.10–3.13 against a real PostgreSQL service, and
+CI runs this suite on Python 3.10 through 3.13 against a real PostgreSQL service, and
 fails the build if any test reports as skipped.
 
 The design rationale is preserved in order under `probes/`. Each file runs as-is
 and imports no package code. Design notes and implementation plans are in
 `docs/superpowers/`.
-
-The early `EffectLedger` middleware and `MixedEffectDetector` have been removed.
-The middleware sat outside the tool and could not cut a replay of the tool body,
-and the detector was a workaround that warned about that limitation through
-static analysis (`probes/probe_i~l`). `ExecutionBoundary` commits the claim
-before the effect, so an interrupt inside a tool does not release the claim —
-the hazard the detector warned about is gone, and so is the detector. Both
-modules remain in git history.
