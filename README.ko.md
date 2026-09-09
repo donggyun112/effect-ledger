@@ -1,9 +1,9 @@
 # effect-ledger
 
 [![CI](https://github.com/donggyun112/effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/effect-ledger/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/donggyun112/effect-ledger/blob/main/LICENSE)
 
-*[English README](README.md)*
+*[English README](https://github.com/donggyun112/effect-ledger/blob/main/README.md)*
 
 에이전트가 카드를 긁었다. 제공자의 응답이 돌아오기 전에 프로세스가 죽었다. 그래프는
 마지막 체크포인트에서 재개하며 툴을 다시 호출한다. 카드를 한 번 더 긁는다.
@@ -18,9 +18,9 @@
 제공자 멱등성을 만들어내지 않고 exactly-once도 보장하지 않는다. 이미 나갔을지 모르는 것을
 기록하고 나머지는 추측하지 않는다.
 
-[LangChain 실행 경계](docs/langchain-boundary.ko.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
+[LangChain 실행 경계](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
 하나를 얹는 것이고, 저장소(SQLite/Postgres)와 업무 ID, 복구 정책은 따로 고른다. 코어는
-프레임워크에 의존하지 않는다. [조합 API와 확장 계약](docs/composition.ko.md)이 다중 호스트
+프레임워크에 의존하지 않는다. [조합 API와 확장 계약](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.ko.md)이 다중 호스트
 저장소까지 설명한다.
 
 ```python
@@ -39,7 +39,7 @@ runner = LedgerRunner(agent)
 ```
 
 등록된 모든 툴은 기본적으로 보호되며 기존 툴의 이름과 인자 스키마를 그대로 유지한다. 읽기·제어
-예외와 안정적인 효과 이름은 [LangChain 실행 경계 가이드](docs/langchain-boundary.ko.md)의
+예외와 안정적인 효과 이름은 [LangChain 실행 경계 가이드](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)의
 `tools` 설정으로 지정한다. 여러 툴 미들웨어를 쓴다면 경계를 마지막에 배치한다.
 
 ## 설치
@@ -110,7 +110,7 @@ pip install "effect-ledger[postgres]"  # 다중 호스트 저장소를 쓸 때
 
 ## MCP 서버 예제
 
-[examples/mcp_server.py](examples/mcp_server.py)는 별도 SQLite 파일에 메시지를 추가하는
+[examples/mcp_server.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/mcp_server.py)는 별도 SQLite 파일에 메시지를 추가하는
 **로컬 비멱등 메일함**이며 실제 메일이나 외부 계정에 접근하지 않는다.
 
 ```bash

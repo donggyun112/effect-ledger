@@ -1,9 +1,9 @@
 # effect-ledger
 
 [![CI](https://github.com/donggyun112/effect-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/donggyun112/effect-ledger/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/donggyun112/effect-ledger/blob/main/LICENSE)
 
-*[한국어 README](README.ko.md)*
+*[한국어 README](https://github.com/donggyun112/effect-ledger/blob/main/README.ko.md)*
 
 Your agent charged the card. The process died before the provider's reply came
 back. The graph resumes from its last checkpoint, calls the tool again, and
@@ -19,11 +19,11 @@ second call finds it.** An attempt whose outcome was never recorded stops as
 It does not make your provider idempotent and it does not give you exactly-once.
 It records what may already have gone out, and refuses to guess the rest.
 
-Start with the [LangChain execution boundary](docs/langchain-boundary.md): one
+Start with the [LangChain execution boundary](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md): one
 middleware over the tools you already have. Everything else is chosen
 separately — the store (SQLite/Postgres), the business ID, the recovery policy —
 and the core depends on no framework. [The composition API and extension
-contract](docs/composition.md) covers that, up to a multi-host store.
+contract](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.md) covers that, up to a multi-host store.
 
 ```python
 from langchain.agents import create_agent
@@ -44,7 +44,7 @@ runner = LedgerRunner(agent)
 Every registered tool is protected by default. Tool names and argument schemas
 are preserved. Read-only and control exceptions, and stable effect names, are
 declared through the `tools` mapping described in the
-[LangChain execution boundary guide](docs/langchain-boundary.md). With several
+[LangChain execution boundary guide](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md). With several
 tool middlewares, install the boundary last.
 
 ## Install
@@ -120,7 +120,7 @@ way to grant another attempt.
 
 ## MCP server example
 
-[examples/mcp_server.py](examples/mcp_server.py) is a **local non-idempotent
+[examples/mcp_server.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/mcp_server.py) is a **local non-idempotent
 mailbox** that appends messages to a separate SQLite file. It touches no real
 mail and no external account.
 
