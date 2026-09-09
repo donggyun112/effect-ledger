@@ -40,6 +40,33 @@ outcome = runner.start({"messages": [("user", "Send the confirmation")]}, config
 선택 기능이다. 기존 툴은 그대로 둘 수 있고, 제공자 키가 필요한 툴만 이 접근자를 사용한다.
 접근자는 보호된 실행 안에서만 유효하며 모델 스키마에 인자를 추가하지 않는다.
 
+## 직접 실행하기
+
+```bash
+uv sync --all-extras
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo start --lose-response
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo status
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo resume
+```
+
+[examples/execution_boundary_agent.py](../examples/execution_boundary_agent.py)는
+외부 API 키 없이 실행된다. 결정적인 예제 모델이 평범한 `@tool` 하나를 호출하고, 그 툴은 로컬
+메일함에 확인 메시지를 기록한 뒤 응답을 잃는다. 실행권이 먼저 커밋됐으므로 resume은 두 번째
+행을 쓰는 대신 `indeterminate` 상태로 멈춘다. `interrupts`의 `operation_id`, `version`으로
+작업을 식별한다.
+
+이전 예제 프로세스들이 종료됐고 메일함의 해당 행이 실제 작업임을 확인한 후, 출력의 값을 넣는다.
+
+```bash
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo confirm \
+  --operation-id <출력된-operation_id> --version <출력된-version> \
+  --decision-id verified-confirmation-123 --message-id 1 --workers-stopped
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo resume
+```
+
+`completed: true`와 최종 모델 응답을 반환한다. 메일함의 행은 여전히 한 건이고, `provider_key`
+컬럼에는 그 작업의 멱등 키가 들어 있다. confirm은 모델 툴이 아닌 로컬 운영자 명령이다.
+
 ## 툴 정책
 
 `tools`는 보호 대상을 고르는 allowlist가 아니다. 설정에 없는 툴도 `langchain.tool:<이름>`
@@ -160,6 +187,7 @@ outcome = runner.resume(config)
 ```bash
 uv run --all-extras python -m unittest discover -s tests -p test_execution_boundary.py -v
 uv run --all-extras python -m unittest discover -s tests -p test_langgraph_crash.py -k boundary -v
+uv run --all-extras python -m unittest discover -s tests -p test_execution_boundary_example.py -v
 ```
 
 실제 create_agent에서 원래 스키마, 오류 ToolMessage 보류, 완료 결과·artifact 재생, 호스트 ID,

@@ -42,6 +42,36 @@ connection. `current_operation()` is optional. Existing tools can be left alone;
 only a tool that needs the provider key reaches for this accessor. It is valid
 only inside a protected execution and adds no argument to the model schema.
 
+## Running it yourself
+
+```bash
+uv sync --all-extras
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo start --lose-response
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo status
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo resume
+```
+
+[examples/execution_boundary_agent.py](../examples/execution_boundary_agent.py)
+runs without an external API key. A deterministic demo model calls one ordinary
+`@tool` that writes a confirmation into a local mailbox and then loses its reply.
+The claim was committed first, so the resume holds as `indeterminate` instead of
+writing a second row. Identify the operation by the `operation_id` and `version`
+under `interrupts`.
+
+Once the earlier demo processes have exited and you have confirmed that the
+mailbox row is the operation in question, pass the values from that output.
+
+```bash
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo confirm \
+  --operation-id <printed-operation_id> --version <printed-version> \
+  --decision-id verified-confirmation-123 --message-id 1 --workers-stopped
+uv run --all-extras python examples/execution_boundary_agent.py --state-dir /tmp/boundary-demo resume
+```
+
+This returns `completed: true` and the final model response. The mailbox still
+holds exactly one row, and its `provider_key` column is the operation's
+idempotency key. `confirm` is a local operator command rather than a model tool.
+
 ## Tool policy
 
 `tools` is not an allowlist of what to protect. A tool absent from that mapping
@@ -187,6 +217,7 @@ The `effect-ledger` console lists and settles these from a terminal. See
 ```bash
 uv run --all-extras python -m unittest discover -s tests -p test_execution_boundary.py -v
 uv run --all-extras python -m unittest discover -s tests -p test_langgraph_crash.py -k boundary -v
+uv run --all-extras python -m unittest discover -s tests -p test_execution_boundary_example.py -v
 ```
 
 Against a real `create_agent`, these check the original schema, holding an error
