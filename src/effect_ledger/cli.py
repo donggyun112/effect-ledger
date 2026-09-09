@@ -24,7 +24,7 @@ def _executor(database: str, scope: str) -> EffectExecutor:
 def _summary(record: Operation) -> dict[str, Any]:
     return {"operation_id": record.operation_id, "effect": record.effect,
             "state": record.state, "attempt": record.attempt, "version": record.version,
-            "error": record.error}
+            "error": record.error, "created_at": record.created_at}
 
 
 def _list(executor: EffectExecutor, args: argparse.Namespace) -> int:

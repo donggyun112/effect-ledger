@@ -2,11 +2,43 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from .models import _MISSING, Operation, OperationConflict, _json, _text
 from .store import Claim
+
+# Named explicitly rather than selected with *, so a ledger widened by a newer
+# release still reads here instead of failing to build an Operation.
+_COLUMNS = ("scope", "operation_id", "effect", "request", "provider_key", "state",
+            "attempt", "version", "result", "error", "created_at")
+_FIELDS = ", ".join(_COLUMNS)
+
+# Append-only; the index of a step is the version it produces. Step 0 is the
+# original shape, so a ledger written before versioning replays it as a no-op
+# and reaches the same place as a fresh file by the same single path.
+_MIGRATIONS: tuple[tuple[str, ...], ...] = (
+    (
+        """CREATE TABLE IF NOT EXISTS operations (
+            scope TEXT NOT NULL, operation_id TEXT NOT NULL,
+            effect TEXT NOT NULL, request TEXT NOT NULL,
+            provider_key TEXT NOT NULL, state TEXT NOT NULL,
+            attempt INTEGER NOT NULL, version INTEGER NOT NULL,
+            result TEXT, error TEXT,
+            PRIMARY KEY (scope, operation_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS decisions (
+            scope TEXT NOT NULL, decision_id TEXT NOT NULL,
+            payload TEXT NOT NULL, decided_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (scope, decision_id)
+        )""",
+    ),
+    # Text, written by the host, so both backends return the same sortable value.
+    # Rows that predate the column keep NULL rather than a fabricated time.
+    ("ALTER TABLE operations ADD COLUMN created_at TEXT",),
+)
+SCHEMA_VERSION = len(_MIGRATIONS)
 
 
 class SQLStore:
@@ -14,20 +46,30 @@ class SQLStore:
         raise NotImplementedError
 
     def _initialize(self):
+        """Bring the ledger to SCHEMA_VERSION, or refuse to read a newer one.
+
+        Reading a ledger a later release widened is the failure this stamp exists
+        to name: without it the mismatch surfaces as a TypeError on every read,
+        including the operator's own triage commands."""
         with self._transaction("__schema__") as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS operations (
-                scope TEXT NOT NULL, operation_id TEXT NOT NULL,
-                effect TEXT NOT NULL, request TEXT NOT NULL,
-                provider_key TEXT NOT NULL, state TEXT NOT NULL,
-                attempt INTEGER NOT NULL, version INTEGER NOT NULL,
-                result TEXT, error TEXT,
-                PRIMARY KEY (scope, operation_id)
+            db.execute("""CREATE TABLE IF NOT EXISTS schema_version (
+                id INTEGER PRIMARY KEY, version INTEGER NOT NULL
             )""")
-            db.execute("""CREATE TABLE IF NOT EXISTS decisions (
-                scope TEXT NOT NULL, decision_id TEXT NOT NULL,
-                payload TEXT NOT NULL, decided_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (scope, decision_id)
-            )""")
+            row = db.execute("SELECT version FROM schema_version WHERE id=1").fetchone()
+            current = 0 if row is None else row["version"]
+            if current > SCHEMA_VERSION:
+                raise ValueError(
+                    f"Ledger schema is v{current}; this build of effect-ledger "
+                    f"understands v{SCHEMA_VERSION}. Upgrade the code rather than "
+                    "reading the ledger with an older release.")
+            for step in _MIGRATIONS[current:]:
+                for statement in step:
+                    db.execute(statement)
+            if row is None:
+                db.execute("INSERT INTO schema_version(id, version) VALUES (1, ?)",
+                           (SCHEMA_VERSION,))
+            elif current < SCHEMA_VERSION:
+                db.execute("UPDATE schema_version SET version=? WHERE id=1", (SCHEMA_VERSION,))
 
     @staticmethod
     def _operation(row: Any) -> Operation:
@@ -38,7 +80,7 @@ class SQLStore:
 
     def _get(self, db: Any, scope: str, operation_id: str) -> Operation | None:
         row = db.execute(
-            "SELECT * FROM operations WHERE scope=? AND operation_id=?",
+            f"SELECT {_FIELDS} FROM operations WHERE scope=? AND operation_id=?",
             (scope, operation_id),
         ).fetchone()
         return None if row is None else self._operation(row)
@@ -49,16 +91,18 @@ class SQLStore:
             return self._get(db, scope, operation_id)
 
     def unresolved(self, scope: str, *, limit: int) -> list[Operation]:
-        """List operations awaiting a decision. Read-only; grants nothing.
+        """List operations awaiting a decision, oldest first. Read-only; grants nothing.
 
-        Rows carry no timestamp, so this orders by operation ID rather than age."""
+        Age orders the queue but settles nothing: the oldest row is the one to
+        look at first, never the one a timer may retry. Rows written before
+        created_at existed carry no time and sort ahead of every dated row."""
         _text(scope, "scope")
         if type(limit) is not int or limit < 1:
             raise ValueError("limit must be a positive integer")
         with self._transaction(scope) as db:
             rows = db.execute(
-                "SELECT * FROM operations WHERE scope=? AND state IN ('in_flight', "
-                "'indeterminate') ORDER BY operation_id LIMIT ?",
+                f"SELECT {_FIELDS} FROM operations WHERE scope=? AND state IN ('in_flight', "
+                "'indeterminate') ORDER BY COALESCE(created_at, ''), operation_id LIMIT ?",
                 (scope, limit),
             ).fetchall()
         return [self._operation(row) for row in rows]
@@ -75,8 +119,12 @@ class SQLStore:
             record = self._get(db, scope, operation_id)
             if record is None:
                 db.execute(
-                    "INSERT INTO operations VALUES (?, ?, ?, ?, ?, 'in_flight', 1, 1, NULL, NULL)",
-                    (scope, operation_id, effect, payload, str(uuid4())),
+                    f"INSERT INTO operations({_FIELDS}) "
+                    "VALUES (?, ?, ?, ?, ?, 'in_flight', 1, 1, NULL, NULL, ?)",
+                    (scope, operation_id, effect, payload, str(uuid4()),
+                     # Always fractional, so a burst inside one second still
+                     # sorts by arrival rather than collapsing to ID order.
+                     datetime.now(timezone.utc).isoformat(timespec="microseconds")),
                 )
             else:
                 if record.effect != effect or _json(record.request) != payload:

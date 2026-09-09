@@ -81,7 +81,7 @@ host: store operation ID
 Sending a different effect or request under the same scope and ID is a conflict.
 JSON object key order does not matter, but changing a value makes it a new
 request. Integer and float representations are also distinguished. Only JSON
-values are accepted. Adapters use the stored `call.provider_key` before
+values are accepted. Handlers use the stored `operation.provider_key` before
 execution when the provider supports it. Preserving the key does not extend the
 provider's own idempotency retention window.
 
@@ -230,6 +230,11 @@ network call. The scope is processes on one host sharing the same local-disk
 database. It is not an implementation for network filesystems or multiple hosts.
 Losing the database, restoring a stale backup or deleting the ledger breaks the
 guarantee. No automatic expiry or deletion is implemented.
+
+The ledger carries a schema version and is upgraded in place when it is opened.
+One written by a newer release is refused at startup rather than misread, so a
+downgrade stops there instead of failing on every read, including the operator's
+own commands.
 
 For multiple hosts, inject `PostgresOperationStore(dsn)` from `[postgres]`.
 Hosts using the same database and scope share the claim. It serializes short

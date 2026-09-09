@@ -27,13 +27,15 @@ class StdioEffectClient:
             async with stdio_client(self.server) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool(
+                    return await session.call_tool(
                         "execute_effect", {"operation_id": operation_id, "effect": effect, "request": request},
                         read_timeout_seconds=timedelta(seconds=self.timeout),
                     )
-                    if result.isError or not isinstance(result.structuredContent, dict):
-                        raise ValueError("Effect server rejected the request or returned no structured state")
-                    return result.structuredContent
         async def bounded():
             return await asyncio.wait_for(call(), timeout=self.timeout)
-        return asyncio.run(bounded())
+        # Checked after the task group closes: raising inside it reaches the
+        # caller wrapped in an ExceptionGroup rather than as a ValueError.
+        result = asyncio.run(bounded())
+        if result.isError or not isinstance(result.structuredContent, dict):
+            raise ValueError("Effect server rejected the request or returned no structured state")
+        return result.structuredContent

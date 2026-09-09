@@ -49,6 +49,9 @@ class Operation:
     version: int
     result: Any
     error: str | None
+    # When the claim was first committed, for operator triage only. None on rows
+    # written before the column existed. Age never settles an operation.
+    created_at: str | None = None
 
     def response(self) -> dict[str, Any]:
         """Return public status without request or provider key.

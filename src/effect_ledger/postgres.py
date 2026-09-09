@@ -24,7 +24,7 @@ class _Connection:
 class PostgresOperationStore(SQLStore):
     """Serialize short transactions per scope using a shared PostgreSQL database.
 
-    Creates missing tables in the configured search_path; does not migrate schemas.
+    Creates and migrates the ledger tables in the configured search_path.
     Opens one connection per transaction. Durability and failover are host duties."""
 
     def __init__(self, dsn: str) -> None:
