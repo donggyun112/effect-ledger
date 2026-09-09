@@ -1,0 +1,230 @@
+<title>effect-ledger recovery</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #10151c;
+    --panel: #161d26;
+    --line: #27313d;
+    --text: #e7eaef;
+    --muted: #8b95a4;
+    --ok: #5fd3c4;
+    --ok-dim: rgba(95, 211, 196, 0.14);
+    --hold: #f2a86b;
+    --hold-dim: rgba(242, 168, 107, 0.14);
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--text);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  }
+  .stage {
+    width: min(1280px, 100%); aspect-ratio: 16 / 9; background: var(--ground);
+    display: grid; grid-template-columns: 1.25fr 1fr; grid-template-rows: auto 1fr auto;
+    gap: 0 26px; padding: 26px 32px 20px; border: 1px solid var(--line); border-radius: 6px;
+    position: relative; overflow: hidden;
+  }
+  header { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 6px; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  header h1 span { color: var(--muted); font-weight: 400; margin-left: 10px; }
+  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .legend .h i { background: var(--hold); } .legend .o i { background: var(--ok); }
+
+  /* edges sit under the nodes so a line never crosses a label */
+  .graph { position: relative; min-height: 0; }
+  .graph svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .edge { stroke: var(--line); stroke-width: 1.6; fill: none; marker-end: url(#tip); }
+  .edge.hot { stroke: var(--hold); }
+  .edge.done { stroke: var(--ok); }
+  .node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; rx: 7; }
+  .node text { fill: var(--text); font-family: var(--mono); font-size: 14px; }
+  .node.term rect { fill: none; stroke: var(--line); rx: 15; }
+  .node.term text { fill: var(--muted); font-size: 12.5px; }
+  .node.live rect { stroke: var(--hold); fill: var(--hold-dim); }
+  .node.live text { fill: var(--hold); }
+  .node.settled rect { stroke: var(--ok); fill: var(--ok-dim); }
+  .node.settled text { fill: var(--ok); }
+  .node.dim { opacity: 0.4; }
+  .statepill rect { fill: var(--panel); stroke: var(--hold); rx: 12; }
+  .statepill text { fill: var(--hold); font-family: var(--mono); font-size: 12.5px; }
+  .statepill.settled rect { stroke: var(--ok); } .statepill.settled text { fill: var(--ok); }
+  .statepill.idle rect { stroke: var(--line); } .statepill.idle text { fill: var(--muted); }
+
+  .side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .log { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 7px; overflow: hidden; justify-content: flex-end; }
+  .call {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 11px;
+    opacity: 0; transform: translateY(8px); transition: opacity 260ms ease, transform 260ms ease;
+  }
+  .call.on { opacity: 1; transform: none; }
+  .call.past { opacity: 0.5; }
+  .call .fn { font-family: var(--mono); font-size: 11.5px; color: var(--ok); word-break: break-word; }
+  .call .ret { margin-top: 5px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .call .ret b { color: var(--hold); font-weight: 500; }
+  .call .ret b.ok { color: var(--ok); }
+  .meter { border-top: 1px solid var(--line); padding-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: baseline; font-variant-numeric: tabular-nums; }
+  .meter .lab { color: var(--muted); font-size: 12.5px; }
+  .meter .val { font-family: var(--mono); font-size: 26px; font-weight: 500; color: var(--ok); }
+
+  footer { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 16px; }
+  .caption { font-size: 14.5px; color: var(--text); min-height: 1.5em; }
+  .caption em { color: var(--hold); font-style: normal; }
+  .caption em.ok { color: var(--ok); }
+  .controls { display: flex; gap: 8px; }
+  button {
+    font: 500 12px var(--mono); color: var(--text); background: transparent; border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .call { transition: none; } }
+</style>
+
+<div class="stage">
+  <header>
+    <h1>effect-ledger recovery<span>the ledger is a node, and its verdict is an edge</span></h1>
+    <div class="legend"><span class="h"><i></i>unresolved</span><span class="o"><i></i>settled</span></div>
+  </header>
+
+  <div class="graph"><svg id="g" viewBox="0 0 560 400" aria-label="recovery graph">
+    <defs><marker id="tip" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 1 L7 4 L0 7 z" fill="context-stroke"/></marker></defs>
+    <g id="E"></g><g id="N"></g>
+  </svg></div>
+
+  <aside class="side">
+    <div class="log" id="log"></div>
+    <div class="meter">
+      <span class="lab">messages actually sent</span><span class="val" id="sent">0</span>
+      <span class="lab">attempts against the provider</span><span class="val" id="att">0</span>
+    </div>
+  </aside>
+
+  <footer>
+    <div class="caption" id="cap"></div>
+    <div class="controls"><button id="replay">↻ Replay</button><button id="loop" aria-pressed="true">Loop on</button></div>
+  </footer>
+</div>
+
+<script>
+  // Captured from a real run of examples/execution_boundary_agent.py:ledger_graph.
+  // The in_flight rows were sampled from the store while the attempt was running,
+  // which is why the claim is visible before the mailbox row exists.
+  const STEPS = [
+    { cap: "A confirmation is about to go out. <em class='ok'>Nothing is claimed and nothing is sent.</em>",
+      call: null, state: null, attempt: null, sent: 0, live: [], hot: [] },
+    { cap: "The ledger commits the claim <em>before</em> the effect leaves.",
+      call: "EffectExecutor.execute(operation_id, effect, request, send)",
+      ret: "state <b>in_flight</b> · attempt 1 · next_action wait",
+      state: "in_flight", attempt: 1, sent: 0, live: ["ledger"], hot: ["model-ledger"] },
+    { cap: "The confirmation is out. The outcome is <em>not known</em>.",
+      call: null, ret: null, state: "in_flight", attempt: 1, sent: 1,
+      live: ["ledger"], hot: [] },
+    { cap: "The reply was lost, so the run stops on <em>unresolved</em>.",
+      call: 'graph.invoke({"messages": [("user", "Confirm order-123")]})',
+      ret: "state <b>indeterminate</b> · attempt 1 · next_action reconcile · stops on unresolved",
+      state: "indeterminate", attempt: 1, sent: 1, live: ["unresolved"], hot: ["ledger-unresolved"] },
+    { cap: "Resume without a decision: back through the ledger, and <em>refused</em> there.",
+      call: 'graph.invoke(Command(resume="operator looked"))',
+      ret: "state <b>indeterminate</b> · attempt <b>1</b> · unchanged · stops on unresolved",
+      state: "indeterminate", attempt: 1, sent: 1, live: ["unresolved"],
+      hot: ["unresolved-ledger", "ledger-unresolved"] },
+    { cap: "An operator checked the mailbox row, then recorded the outcome.",
+      call: "effect-ledger resolve &lt;id&gt; --complete --expected-version 2 --workers-stopped",
+      ret: "state <b class='ok'>completed</b> · version 3 · next_action use_result",
+      state: "completed", attempt: 1, sent: 1, settled: ["ledger"], hot: [] },
+    { cap: "Replayed from the ledger, <em class='ok'>never sent again</em>.",
+      call: 'graph.invoke(Command(resume="recovered"))',
+      ret: '"Confirmation sent: order-123 confirmed, mailbox row 1"',
+      state: "completed", attempt: 1, sent: 1, settled: ["ledger", "model", "end"],
+      dim: ["unresolved"], hot: [], done: ["ledger-model", "model-end"] },
+  ];
+
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (n, a = {}, cls) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (cls) e.setAttribute("class", cls); return e; };
+  const E = document.getElementById("E"), N = document.getElementById("N"), log = document.getElementById("log"),
+        cap = document.getElementById("cap"), sentOut = document.getElementById("sent"), attOut = document.getElementById("att");
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const T = (ms) => reduced ? 0 : ms;
+
+  const BOX = { start: [200, 8, 120, 30, 1], model: [200, 78, 120, 34, 0],
+                ledger: [60, 190, 130, 34, 0], end: [370, 190, 120, 30, 1],
+                unresolved: [60, 310, 130, 34, 0] };
+  const nodes = {};
+  for (const [id, [x, y, w, h, term]] of Object.entries(BOX)) {
+    const g = el("g", {}, "node" + (term ? " term" : ""));
+    g.appendChild(el("rect", { x, y, width: w, height: h }));
+    const label = id === "start" ? "__start__" : id === "end" ? "__end__" : id;
+    const t = el("text", { x: x + w / 2, y: y + h / 2 + 5, "text-anchor": "middle" });
+    t.textContent = label; g.appendChild(t);
+    N.appendChild(g); nodes[id] = g;
+  }
+  const pill = el("g", {}, "statepill idle");
+  pill.appendChild(el("rect", { x: 60, y: 240, width: 130, height: 26 }));
+  const pillText = el("text", { x: 125, y: 257, "text-anchor": "middle" });
+  pillText.textContent = "no claim"; pill.appendChild(pillText); N.appendChild(pill);
+
+  const c = (id) => { const [x, y, w, h] = BOX[id]; return { x: x + w / 2, y, b: y + h, l: x, r: x + w }; };
+  const EDGES = {
+    "start-model": `M${c("start").x} ${c("start").b} L ${c("model").x} ${c("model").y}`,
+    "model-ledger": `M${c("model").l + 20} ${c("model").b} C 100 140, 105 160, ${c("ledger").x - 18} ${c("ledger").y}`,
+    "ledger-model": `M${c("ledger").x + 22} ${c("ledger").y} C 160 160, 165 140, ${c("model").l + 44} ${c("model").b}`,
+    "model-end": `M${c("model").r} ${c("model").y + 17} C 380 95, 430 120, ${c("end").x} ${c("end").y}`,
+    "ledger-unresolved": `M${c("ledger").x - 18} ${c("ledger").b + 32} L ${c("unresolved").x - 18} ${c("unresolved").y}`,
+    "unresolved-ledger": `M${c("unresolved").x + 18} ${c("unresolved").y} C 160 285, 160 275, ${c("ledger").x + 18} ${c("ledger").b + 32}`,
+  };
+  const edges = {};
+  for (const [id, d] of Object.entries(EDGES)) { const p = el("path", { d }, "edge"); E.appendChild(p); edges[id] = p; }
+
+  let run = 0, looping = true;
+  async function play() {
+    const my = ++run, alive = () => my === run;
+    log.replaceChildren(); cap.innerHTML = ""; sentOut.textContent = "0"; attOut.textContent = "0";
+    Object.values(nodes).forEach(n => n.classList.remove("live", "settled"));
+    Object.values(edges).forEach(e => e.classList.remove("hot", "done"));
+    pill.setAttribute("class", "statepill idle"); pillText.textContent = "no claim";
+
+    for (const step of STEPS) {
+      Object.values(nodes).forEach(n => n.classList.remove("live", "dim"));
+      Object.values(edges).forEach(e => e.classList.remove("hot"));
+      (step.dim || []).forEach(id => nodes[id].classList.add("dim"));
+      (step.live || []).forEach(id => nodes[id].classList.add("live"));
+      (step.settled || []).forEach(id => nodes[id].classList.add("settled"));
+      (step.hot || []).forEach(id => edges[id].classList.add("hot"));
+      (step.done || []).forEach(id => edges[id].classList.add("done"));
+
+      pillText.textContent = step.state || "no claim";
+      pill.setAttribute("class", "statepill" + (step.state === "completed" ? " settled"
+                                : step.state ? "" : " idle"));
+      if (step.call) {
+        for (const card of log.children) card.classList.add("past");
+        const card = document.createElement("div");
+        card.className = "call";
+        card.innerHTML = `<div class="fn">${step.call}</div>` +
+                         (step.ret ? `<div class="ret">→ ${step.ret}</div>` : "");
+        log.appendChild(card);
+        if (log.children.length > 5) log.firstElementChild.remove();
+        requestAnimationFrame(() => card.classList.add("on"));
+      }
+      sentOut.textContent = step.sent;
+      attOut.textContent = step.attempt ?? 0;
+      cap.innerHTML = step.cap;
+      await sleep(T(step.call ? 2200 : 1500));
+      if (!alive()) return;
+    }
+    await sleep(T(1400));
+    if (!alive()) return;
+    if (looping && !reduced) play();
+  }
+  document.getElementById("replay").addEventListener("click", play);
+  document.getElementById("loop").addEventListener("click", (ev) => {
+    looping = !looping; ev.currentTarget.textContent = looping ? "Loop on" : "Loop off";
+    ev.currentTarget.setAttribute("aria-pressed", String(looping));
+    if (looping) play();
+  });
+  play();
+</script>

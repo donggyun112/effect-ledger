@@ -19,25 +19,30 @@ second call finds it.** An attempt whose outcome was never recorded stops as
 It does not make your provider idempotent and it does not give you exactly-once.
 It records what may already have gone out, and refuses to guess the rest.
 
-![A LangGraph Studio graph whose nodes are model, ledger and unresolved. The run
-goes model to ledger, the confirmation is sent, the reply is lost, and it stops
-on unresolved. Resuming walks unresolved to ledger and back to unresolved. After
-an operator confirms the outcome, ledger hands back to model and the run
-ends](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+![A graph of model, ledger and unresolved. The ledger commits an in_flight claim
+while nothing has been sent yet; the confirmation goes out and the reply is
+lost, so the run stops on unresolved as indeterminate. Resuming walks back
+through the ledger and is refused there with the attempt count unchanged. An
+operator records the real outcome and it is replayed. Two counters, messages
+sent and provider attempts, stay at
+one](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
 
-One run of the composed graph in
+The ledger commits the claim **before** the effect leaves, so the run above stops
+on `unresolved` rather than sending a second confirmation. Resuming without a
+decision walks `unresolved → ledger → unresolved`: the refusal is the ledger's,
+and the attempt count does not move. Only an operator who confirmed the real
+outcome settles it, and that result is replayed. Both counters stay at one.
+
+Every value on that screen was captured from a real run of the composed graph in
 [examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py),
-in LangGraph Studio. `model` routes to `ledger`, which commits the claim before
-the confirmation leaves. The reply is lost, so the run stops on `unresolved`.
-Resuming walks `unresolved → ledger → unresolved`: the ledger refuses the
-retry, the attempt count does not move, and the mailbox still holds one message.
-Only once an operator has confirmed the real outcome does `ledger` replay it and
-hand back to `model`.
+including the `in_flight` rows, which were sampled from the store while the
+attempt was still running. Source:
+[docs/demo/recovery-walk.html](https://github.com/donggyun112/effect-ledger/blob/main/docs/demo/recovery-walk.html).
 
-That graph is composed on `EffectExecutor` directly so the boundary is a node
-you can watch. Under the `ExecutionBoundary` middleware below, the same recovery
-happens inside the `tools` node instead: LangGraph draws nodes, and middleware
-is not one. `langgraph.json` exposes both.
+That graph is composed on `EffectExecutor` directly, which is what makes the
+boundary a node. Under the `ExecutionBoundary` middleware below, the same
+recovery happens inside the `tools` node instead: LangGraph draws nodes, and
+middleware is not one. `langgraph.json` exposes both for `langgraph dev`.
 
 Start with the [LangChain execution boundary](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.md): one
 middleware over the tools you already have. Everything else is chosen
