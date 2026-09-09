@@ -7,6 +7,7 @@ second row. Only an operator who checked the mailbox can release it.
 
 import argparse
 import json
+import os
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -67,6 +68,21 @@ def mailbox_tool(mailbox: Path, lose_response: bool):
         return {"message_id": message_id}
 
     return send_confirmation
+
+
+def studio_graph():
+    """Entry point for `langgraph dev`; see langgraph.json.
+
+    The platform owns the checkpointer and the thread, so neither is built here.
+    The tool always loses its reply: the point on screen is that resuming the
+    graph does not send a second confirmation."""
+    root = Path(os.environ.get("EFFECT_LEDGER_DEMO_DIR", "/tmp/boundary-demo")).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    boundary = ExecutionBoundary(
+        EffectExecutor(root / "effects.sqlite", scope="account-1"),
+        workflow_id="orders:v1", tools={"send_confirmation": "confirmation.send:v1"})
+    return create_agent(DemoModel(), [mailbox_tool(root / "mailbox.sqlite", True)],
+                        middleware=[boundary])
 
 
 def main():

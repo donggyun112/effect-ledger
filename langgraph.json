@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "orders": "./examples/execution_boundary_agent.py:studio_graph"
+  }
+}
