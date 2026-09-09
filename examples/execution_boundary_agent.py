@@ -116,8 +116,9 @@ def main():
         status = executor.resolve(
             args.operation_id, expected_version=args.version, decision_id=args.decision_id,
             action="complete",
-            result=ExecutionBoundary.result("Confirmation sent",
-                                            artifact={"message_id": args.message_id}),
+            result=ExecutionBoundary.result(
+                f"{record.request['order_id']} was already confirmed, mailbox row "
+                f"{args.message_id}", artifact={"message_id": args.message_id}),
             reason="Operator verified local mailbox row and stopped prior workers",
             workers_stopped=args.workers_stopped,
         )

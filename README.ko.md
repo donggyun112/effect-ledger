@@ -18,6 +18,15 @@
 제공자 멱등성을 만들어내지 않고 exactly-once도 보장하지 않는다. 이미 나갔을지 모르는 것을
 기록하고 나머지는 추측하지 않는다.
 
+![LangGraph Studio에서의 한 번의 실행: 툴이 확인 메시지를 보내고 응답을 잃자 그래프가
+indeterminate로 멈추고, 재개해도 같은 중단이 반복되며, 운영자가 실제 결과를 확인해야
+완료된다](https://raw.githubusercontent.com/donggyun112/effect-ledger/main/docs/studio-recovery.gif)
+
+[examples/execution_boundary_agent.py](https://github.com/donggyun112/effect-ledger/blob/main/examples/execution_boundary_agent.py)를
+LangGraph Studio에서 한 번 실행한 것이다. 툴이 확인 메시지를 보내고 응답을 잃어 시도가
+`indeterminate`로 멈춘다. 그래프를 재개해도 두 번째 확인 메시지가 아니라 같은 중단이
+나오고, 메일함의 메시지는 끝까지 한 건이다.
+
 [LangChain 실행 경계](https://github.com/donggyun112/effect-ledger/blob/main/docs/langchain-boundary.ko.md)에서 시작한다. 이미 가진 툴 위에 미들웨어
 하나를 얹는 것이고, 저장소(SQLite/Postgres)와 업무 ID, 복구 정책은 따로 고른다. 코어는
 프레임워크에 의존하지 않는다. [조합 API와 확장 계약](https://github.com/donggyun112/effect-ledger/blob/main/docs/composition.ko.md)이 다중 호스트
