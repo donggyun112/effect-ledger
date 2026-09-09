@@ -11,3 +11,6 @@ wheels/
 
 # Local code analysis cache
 .codecanvas/
+
+# Local state written by `langgraph dev`
+.langgraph_api/
